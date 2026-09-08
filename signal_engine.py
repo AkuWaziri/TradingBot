@@ -70,11 +70,11 @@ def score_token(
     if pump_price_usd and token.price_usd:
         divergence = abs(token.price_usd - pump_price_usd) / pump_price_usd * 100
         if divergence > cfg.max_coingecko_price_divergence_pct:
-            return Signal("REJECT", score, reasons + ["cross-source price divergence too high"])
+            return Signal("REJECT", score, tuple(reasons + ["cross-source price divergence too high"]))
         reasons.append("cross-source price check passed")
 
     if score >= cfg.strong_buy_score:
         return Signal("STRONG_BUY", score, tuple(reasons))
     if score >= cfg.buy_score:
         return Signal("BUY", score, tuple(reasons))
-    return Signal("HOLD", score, tuple(reasons or ["insufficient evidence"])))
+    return Signal("HOLD", score, tuple(reasons or ["insufficient evidence"]))

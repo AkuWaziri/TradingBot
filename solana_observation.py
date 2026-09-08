@@ -1,9 +1,11 @@
 """Read-only Solana observation pipeline.
 
-Pipeline: Pump.fun discovery -> DexScreener market validation -> Helius
-on-chain inspection -> deterministic Solana intelligence.
+Pipeline: DexScreener discovery -> market validation -> Helius on-chain
+inspection -> deterministic Solana intelligence.
 
-This module has no wallet, signer, transaction builder, or execution path.
+DexScreener is used only as an interim scheduled discovery source. Production
+real-time discovery will move to direct Solana event streaming. This module has
+no wallet, signer, transaction builder, or execution path.
 """
 
 from __future__ import annotations
@@ -12,7 +14,7 @@ from dataclasses import dataclass
 
 from dexscreener_market import DexScreenerPair, DexScreenerProvider
 from helius_onchain import HeliusProvider, HeliusOnchainError
-from live_market import LiveMarketError, LiveToken, PumpFunProvider
+from live_market import LiveMarketError, LiveToken
 from solana_intelligence import IntelligenceConfig, SolanaIntelligence, evaluate_token
 
 
@@ -41,10 +43,26 @@ def select_best_pair(pairs: list[DexScreenerPair], mint: str) -> DexScreenerPair
     return max(candidates, key=_pair_rank, default=None)
 
 
+def _token_from_pair(pair: DexScreenerPair) -> LiveToken:
+    token = LiveToken(
+        mint=pair.base_token_address,
+        symbol=pair.base_token_symbol,
+        name=pair.base_token_name,
+        price_usd=pair.price_usd,
+        market_cap_usd=pair.market_cap_usd,
+        volume_24h_usd=pair.volume_24h_usd,
+        price_change_24h_pct=pair.price_change_24h_pct,
+        liquidity_usd=pair.liquidity_usd,
+        created_at=pair.pair_created_at,
+        source="dexscreener",
+    )
+    token.validate()
+    return token
+
+
 def observe_tokens(
     *,
     limit: int = 10,
-    pump: PumpFunProvider | None = None,
     dex: DexScreenerProvider | None = None,
     helius: HeliusProvider | None = None,
     config: IntelligenceConfig | None = None,
@@ -52,30 +70,57 @@ def observe_tokens(
     if not 1 <= limit <= 30:
         raise ValueError("limit must be between 1 and 30")
 
-    pump = pump or PumpFunProvider()
     dex = dex or DexScreenerProvider()
     helius = helius or HeliusProvider()
 
-    tokens = pump.currently_live(limit=limit)
-    if not tokens:
+    mints = dex.latest_solana_token_addresses(limit=limit)
+    if not mints:
         return []
 
-    pairs = dex.pairs_by_tokens([token.mint for token in tokens])
+    pairs = dex.pairs_by_tokens(mints)
     grouped: dict[str, list[DexScreenerPair]] = {}
     for pair in pairs:
         grouped.setdefault(pair.base_token_address, []).append(pair)
 
     observations: list[Observation] = []
-    for token in tokens:
-        pair = select_best_pair(grouped.get(token.mint, []), token.mint)
+    for mint in mints:
+        pair = select_best_pair(grouped.get(mint, []), mint)
         if pair is None:
+            token = LiveToken(
+                mint=mint,
+                symbol="UNKNOWN",
+                name="Unknown",
+                price_usd=None,
+                market_cap_usd=None,
+                volume_24h_usd=None,
+                price_change_24h_pct=None,
+                liquidity_usd=None,
+                created_at=None,
+                source="dexscreener-discovery",
+            )
             observations.append(Observation(token=token, pair=None, intelligence=None, error="no_solana_market_pair"))
             continue
 
         try:
-            state = helius.inspect_token(token.mint)
+            token = _token_from_pair(pair)
+            state = helius.inspect_token(mint)
             intelligence = evaluate_token(token, pair, state, config=config)
-        except (HeliusOnchainError, ValueError) as exc:
+        except (HeliusOnchainError, LiveMarketError, ValueError) as exc:
+            try:
+                token = _token_from_pair(pair)
+            except ValueError:
+                token = LiveToken(
+                    mint=mint,
+                    symbol=pair.base_token_symbol or "UNKNOWN",
+                    name=pair.base_token_name or "Unknown",
+                    price_usd=pair.price_usd,
+                    market_cap_usd=pair.market_cap_usd,
+                    volume_24h_usd=pair.volume_24h_usd,
+                    price_change_24h_pct=pair.price_change_24h_pct,
+                    liquidity_usd=pair.liquidity_usd,
+                    created_at=pair.pair_created_at,
+                    source="dexscreener",
+                )
             observations.append(
                 Observation(token=token, pair=pair, intelligence=None, error=f"helius_or_brain_failure:{exc}")
             )
@@ -90,6 +135,7 @@ def format_observations(observations: list[Observation]) -> str:
     lines = [
         "SOLANA LIVE OBSERVATION",
         "mode=read-only; execution=disabled",
+        "discovery=dexscreener-scheduled; realtime-discovery=planned",
         f"candidates={len(observations)}",
         "",
     ]

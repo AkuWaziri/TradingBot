@@ -39,6 +39,21 @@ def test_performance_handles_no_trades():
     assert report.buy_and_hold_return_pct == 0
 
 
+def test_performance_accepts_explicit_benchmark():
+    result = run_backtest([1, 1, 2, 3, 2, 1], **COMMON)
+    report = calculate_performance(result, buy_and_hold_return_pct=25.0)
+
+    assert report.buy_and_hold_return_pct == 25.0
+    assert report.strategy_edge_pct == pytest.approx(result.total_return_pct - 25.0)
+
+
+def test_performance_rejects_non_finite_benchmark():
+    result = run_backtest([1, 1, 1, 1], **COMMON)
+
+    with pytest.raises(ValueError, match="buy_and_hold_return_pct"):
+        calculate_performance(result, buy_and_hold_return_pct=float("nan"))
+
+
 def test_performance_report_is_human_readable():
     result = run_backtest([1, 1, 2, 3, 2, 1], **COMMON)
     report = calculate_performance(result)

@@ -24,8 +24,50 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Verify Helius RPC access
+        env:
+          HELIUS_API_KEY: ${{ secrets.HELIUS_API_KEY }}
+          HELIUS_RPC_BASE_URL: https://mainnet.helius-rpc.com
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from urllib.error import HTTPError, URLError
+          from urllib.request import Request, urlopen
+
+          key = os.getenv("HELIUS_API_KEY", "")
+          base = os.getenv("HELIUS_RPC_BASE_URL", "https://mainnet.helius-rpc.com").rstrip("/")
+          if not key:
+              raise SystemExit("HELIUS_API_KEY is missing inside the GitHub Actions job")
+
+          payload = json.dumps({
+              "jsonrpc": "2.0",
+              "id": "helius-diagnostic",
+              "method": "getHealth",
+              "params": [],
+          }).encode("utf-8")
+          request = Request(
+              f"{base}/?api-key={key}",
+              data=payload,
+              method="POST",
+              headers={"Accept": "application/json", "Content-Type": "application/json"},
+          )
+          try:
+              with urlopen(request, timeout=15) as response:
+                  body = response.read().decode("utf-8", errors="replace")
+                  print(f"HELIUS_RPC_HTTP_STATUS={response.status}")
+                  print(f"HELIUS_RPC_RESPONSE={body[:500]}")
+          except HTTPError as exc:
+              body = exc.read().decode("utf-8", errors="replace")[:500]
+              print(f"HELIUS_RPC_HTTP_STATUS={exc.code}")
+              print(f"HELIUS_RPC_RESPONSE={body}")
+              raise SystemExit("Helius RPC diagnostic failed")
+          except URLError as exc:
+              raise SystemExit(f"Helius RPC network failure: {exc.reason}")
+          PY
+
       - name: Run read-only Solana observation
         env:
           HELIUS_API_KEY: ${{ secrets.HELIUS_API_KEY }}
-          HELIUS_RPC_URL: https://mainnet.helius-rpc.com
+          HELIUS_RPC_BASE_URL: https://mainnet.helius-rpc.com
         run: python live_runner.py --limit "${{ inputs.limit }}"

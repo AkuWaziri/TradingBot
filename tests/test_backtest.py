@@ -20,7 +20,7 @@ def test_backtest_marks_open_position_to_market():
 
 
 def test_backtest_records_completed_trade_and_pnl():
-    result = run_backtest([1, 1, 2, 1], **COMMON)
+    result = run_backtest([1, 1, 2, 3, 2, 1], **COMMON)
 
     assert result.completed_trades == 1
     assert result.winning_trades == 0
@@ -31,8 +31,8 @@ def test_backtest_records_completed_trade_and_pnl():
 
 
 def test_backtest_applies_fees():
-    no_fee = run_backtest([1, 1, 2, 1], **COMMON, fee_rate=0.0)
-    with_fee = run_backtest([1, 1, 2, 1], **COMMON, fee_rate=0.01)
+    no_fee = run_backtest([1, 1, 2, 3, 2, 1], **COMMON, fee_rate=0.0)
+    with_fee = run_backtest([1, 1, 2, 3, 2, 1], **COMMON, fee_rate=0.01)
 
     assert with_fee.final_equity < no_fee.final_equity
 

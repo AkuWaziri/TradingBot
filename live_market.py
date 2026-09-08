@@ -52,14 +52,30 @@ class LiveToken:
             raise ValueError("price_usd must be positive")
 
 
-def _get_json(url: str, *, headers: dict[str, str] | None = None, timeout: float = 10.0) -> Any:
+def _get_json(
+    url: str,
+    *,
+    headers: dict[str, str] | None = None,
+    timeout: float = 10.0,
+) -> Any:
     if not url.startswith("https://"):
         raise LiveMarketError("live provider URLs must use HTTPS")
-    request = Request(url, method="GET", headers={"Accept": "application/json", **(headers or {})})
+    request = Request(
+        url,
+        method="GET",
+        headers={"Accept": "application/json", **(headers or {})},
+    )
     try:
         with urlopen(request, timeout=timeout) as response:
             return json.loads(response.read().decode("utf-8"))
-    except (HTTPError, URLError, TimeoutError, OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+    except (
+        HTTPError,
+        URLError,
+        TimeoutError,
+        OSError,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+    ) as exc:
         raise LiveMarketError(f"live provider request failed: {exc}") from exc
 
 
@@ -87,8 +103,13 @@ class PumpFunProvider:
         api_token: str | None = None,
         timeout: float = 10.0,
     ) -> None:
-        self.base_url = (base_url or os.getenv("PUMP_API_BASE_URL", "https://frontend-api-v3.pump.fun")).rstrip("/")
-        self.api_token = api_token if api_token is not None else os.getenv("PUMP_API_TOKEN")
+        self.base_url = (
+            base_url
+            or os.getenv("PUMP_API_BASE_URL", "https://frontend-api-v3.pump.fun")
+        ).rstrip("/")
+        self.api_token = (
+            api_token if api_token is not None else os.getenv("PUMP_API_TOKEN")
+        )
         self.timeout = timeout
 
     def currently_live(self, *, limit: int = 20, offset: int = 0) -> list[LiveToken]:
@@ -115,6 +136,7 @@ class PumpFunProvider:
             mint = str(item.get("mint") or item.get("address") or "").strip()
             if not mint:
                 continue
+
             created = item.get("created_timestamp")
             created_at = None
             if created is not None:
@@ -125,14 +147,24 @@ class PumpFunProvider:
                     created_at = datetime.fromtimestamp(timestamp, tz=timezone.utc)
                 except (TypeError, ValueError, OSError, OverflowError):
                     created_at = None
+
+            # Pump.fun currently-live does not provide a trustworthy USD spot
+            # price in the fields we consume here. Keep it None rather than
+            # deriving a price from market cap/reserves and creating false data.
             token = LiveToken(
                 mint=mint,
                 symbol=str(item.get("symbol") or "").strip(),
                 name=str(item.get("name") or "").strip(),
-                price_usd=_optional_float(item.get("usd_market_cap") and None),
-                market_cap_usd=_optional_float(item.get("usd_market_cap") or item.get("market_cap")),
-                volume_24h_usd=_optional_float(item.get("volume_24h") or item.get("volume")),
-                price_change_24h_pct=_optional_float(item.get("price_change_percentage_24h")),
+                price_usd=None,
+                market_cap_usd=_optional_float(
+                    item.get("usd_market_cap") or item.get("market_cap")
+                ),
+                volume_24h_usd=_optional_float(
+                    item.get("volume_24h") or item.get("volume")
+                ),
+                price_change_24h_pct=_optional_float(
+                    item.get("price_change_percentage_24h")
+                ),
                 liquidity_usd=_optional_float(item.get("liquidity")),
                 created_at=created_at,
                 source="pump.fun",
@@ -156,12 +188,18 @@ class CoinGeckoProvider:
         platform: str = "solana",
         timeout: float = 10.0,
     ) -> None:
-        self.api_key = api_key if api_key is not None else os.getenv("COINGECKO_API_KEY")
-        self.base_url = (base_url or os.getenv("COINGECKO_API_BASE_URL", "https://api.coingecko.com/api/v3")).rstrip("/")
+        self.api_key = (
+            api_key if api_key is not None else os.getenv("COINGECKO_API_KEY")
+        )
+        self.base_url = (
+            base_url or os.getenv("COINGECKO_API_BASE_URL", "https://api.coingecko.com/api/v3")
+        ).rstrip("/")
         self.platform = platform
         self.timeout = timeout
 
-    def prices_by_contracts(self, contracts: list[str]) -> dict[str, dict[str, float | None]]:
+    def prices_by_contracts(
+        self, contracts: list[str]
+    ) -> dict[str, dict[str, float | None]]:
         contracts = [c.strip() for c in contracts if c and c.strip()]
         if not contracts:
             return {}
@@ -212,9 +250,21 @@ class CoinGeckoProvider:
                     symbol=token.symbol,
                     name=token.name,
                     price_usd=data.get("price_usd"),
-                    market_cap_usd=data.get("market_cap_usd") or token.market_cap_usd,
-                    volume_24h_usd=data.get("volume_24h_usd") or token.volume_24h_usd,
-                    price_change_24h_pct=data.get("price_change_24h_pct") or token.price_change_24h_pct,
+                    market_cap_usd=(
+                        data["market_cap_usd"]
+                        if data.get("market_cap_usd") is not None
+                        else token.market_cap_usd
+                    ),
+                    volume_24h_usd=(
+                        data["volume_24h_usd"]
+                        if data.get("volume_24h_usd") is not None
+                        else token.volume_24h_usd
+                    ),
+                    price_change_24h_pct=(
+                        data["price_change_24h_pct"]
+                        if data.get("price_change_24h_pct") is not None
+                        else token.price_change_24h_pct
+                    ),
                     liquidity_usd=token.liquidity_usd,
                     created_at=token.created_at,
                     source="pump.fun+coingecko" if data else token.source,

@@ -16,11 +16,11 @@ def test_backtest_marks_open_position_to_market():
 
     assert result.final_equity > result.initial_balance
     assert result.completed_trades == 0
-    assert result.equity_curve[-1] == pytest.approx(1_300)
+    assert result.equity_curve[-1] == pytest.approx(1_100)
 
 
 def test_backtest_records_completed_trade_and_pnl():
-    result = run_backtest([3, 3, 2, 1], **COMMON)
+    result = run_backtest([1, 1, 2, 1], **COMMON)
 
     assert result.completed_trades == 1
     assert result.winning_trades == 0

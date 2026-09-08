@@ -67,17 +67,9 @@ class SolanaTokenState:
 class HeliusProvider:
     """Read-only Helius DAS/RPC client for Solana token observations."""
 
-    def __init__(
-        self,
-        *,
-        api_key: str | None = None,
-        base_url: str | None = None,
-        timeout: float = 10.0,
-    ) -> None:
+    def __init__(self, *, api_key: str | None = None, base_url: str | None = None, timeout: float = 10.0) -> None:
         self.api_key = api_key if api_key is not None else os.getenv("HELIUS_API_KEY")
-        self.base_url = (
-            base_url or os.getenv("HELIUS_RPC_BASE_URL", "https://mainnet.helius-rpc.com")
-        ).rstrip("/")
+        self.base_url = (base_url or os.getenv("HELIUS_RPC_BASE_URL", "https://mainnet.helius-rpc.com")).rstrip("/")
         self.timeout = timeout
 
     def _rpc(self, method: str, params: Any) -> Any:
@@ -87,12 +79,7 @@ class HeliusProvider:
             raise HeliusOnchainError("Helius RPC URL must use HTTPS")
 
         body = json.dumps({"jsonrpc": "2.0", "id": "trading-bot", "method": method, "params": params}).encode("utf-8")
-        request = Request(
-            f"{self.base_url}/?api-key={self.api_key}",
-            data=body,
-            method="POST",
-            headers={"Accept": "application/json", "Content-Type": "application/json"},
-        )
+        request = Request(f"{self.base_url}/?api-key={self.api_key}", data=body, method="POST", headers={"Accept": "application/json", "Content-Type": "application/json"})
         try:
             with urlopen(request, timeout=self.timeout) as response:
                 payload = json.loads(response.read().decode("utf-8"))
@@ -101,7 +88,6 @@ class HeliusProvider:
                 response_body = exc.read().decode("utf-8", errors="replace").strip()
             except OSError:
                 response_body = ""
-            # Never expose the API key if a provider echoes request information.
             if self.api_key:
                 response_body = response_body.replace(self.api_key, "<redacted>")
             detail = response_body[:500] if response_body else exc.reason
@@ -112,8 +98,7 @@ class HeliusProvider:
         if not isinstance(payload, dict):
             raise HeliusOnchainError("Helius response is not an object")
         if payload.get("error") is not None:
-            error = payload["error"]
-            raise HeliusOnchainError(f"Helius RPC error: {error}")
+            raise HeliusOnchainError(f"Helius RPC error: {payload['error']}")
         if "result" not in payload:
             raise HeliusOnchainError("Helius response has no result")
         return payload["result"]
@@ -148,10 +133,7 @@ class HeliusProvider:
         mint = mint.strip()
         if not mint:
             raise ValueError("mint is required")
-        result = self._rpc(
-            "getAsset",
-            {"id": mint, "options": {"showFungible": True}},
-        )
+        result = self._rpc("getAsset", [mint, {"showFungible": True}])
         if not isinstance(result, dict):
             raise HeliusOnchainError("getAsset result is not an object")
         return result
@@ -160,7 +142,7 @@ class HeliusProvider:
         mint = mint.strip()
         if not mint:
             raise ValueError("mint is required")
-        result = self._rpc("getTokenLargestAccounts", [mint, {"commitment": "confirmed"}])
+        result = self._rpc("getTokenLargestAccounts", [mint])
         if not isinstance(result, dict) or not isinstance(result.get("value"), list):
             raise HeliusOnchainError("invalid getTokenLargestAccounts result")
 
@@ -175,21 +157,14 @@ class HeliusProvider:
             decimals = self._int(item.get("decimals"), "token account decimals")
             if raw is None or decimals is None or decimals > 255:
                 raise HeliusOnchainError("invalid token account balance")
-            accounts.append(
-                TokenAccountShare(
-                    address=address,
-                    raw_amount=raw,
-                    decimals=decimals,
-                    ui_amount=self._float(item.get("uiAmount"), "token account UI amount"),
-                )
-            )
+            accounts.append(TokenAccountShare(address=address, raw_amount=raw, decimals=decimals, ui_amount=self._float(item.get("uiAmount"), "token account UI amount")))
         return accounts
 
     def get_supply(self, mint: str) -> tuple[int, int]:
         mint = mint.strip()
         if not mint:
             raise ValueError("mint is required")
-        result = self._rpc("getTokenSupply", [mint, {"commitment": "confirmed"}])
+        result = self._rpc("getTokenSupply", [mint])
         if not isinstance(result, dict) or not isinstance(result.get("value"), dict):
             raise HeliusOnchainError("invalid getTokenSupply result")
         value = result["value"]
@@ -229,18 +204,6 @@ class HeliusProvider:
         indexed_slot = self._int(asset.get("last_indexed_slot"), "last indexed slot")
         top_accounts = tuple(self.get_largest_accounts(mint))
 
-        state = SolanaTokenState(
-            mint=mint,
-            symbol=symbol,
-            name=name,
-            supply_raw=supply_raw,
-            decimals=decimals,
-            token_program=token_program,
-            mint_authority=mint_authority,
-            freeze_authority=freeze_authority,
-            price_usd=price_usd,
-            top_accounts=top_accounts,
-            indexed_slot=indexed_slot,
-        )
+        state = SolanaTokenState(mint=mint, symbol=symbol, name=name, supply_raw=supply_raw, decimals=decimals, token_program=token_program, mint_authority=mint_authority, freeze_authority=freeze_authority, price_usd=price_usd, top_accounts=top_accounts, indexed_slot=indexed_slot)
         state.validate()
         return state

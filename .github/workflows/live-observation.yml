@@ -1,0 +1,31 @@
+name: Live Observation
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Number of Pump.fun tokens to inspect"
+        required: false
+        default: "20"
+        type: string
+
+jobs:
+  observe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run read-only live observation
+        env:
+          PUMP_API_TOKEN: ${{ secrets.PUMP_API_TOKEN }}
+          PUMP_API_BASE_URL: https://frontend-api-v3.pump.fun
+          COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
+          COINGECKO_API_BASE_URL: https://api.coingecko.com/api/v3
+        run: python live_runner.py --limit "${{ inputs.limit }}"

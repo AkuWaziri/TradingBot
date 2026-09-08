@@ -40,17 +40,29 @@ def score_token(
     score = 0
     reasons: list[str] = []
 
-    if token.price_change_24h_pct is not None and token.price_change_24h_pct >= 10:
-        score += 2
-        reasons.append("positive 24h momentum")
+    has_momentum = (
+        token.price_change_24h_pct is not None
+        and token.price_change_24h_pct >= 10
+    )
+    has_turnover = False
     if token.volume_24h_usd is not None and token.market_cap_usd:
         turnover = token.volume_24h_usd / token.market_cap_usd
-        if turnover >= 0.25:
+        has_turnover = turnover >= 0.25
+        if has_turnover:
             score += 2
             reasons.append("strong volume relative to market cap")
+
+    if has_momentum:
+        score += 2
+        reasons.append("positive 24h momentum")
+
+    # Liquidity is a risk-quality confirmation, not standalone bullish evidence.
+    # Do not let a liquid but directionless token accumulate signal score.
     if token.liquidity_usd is not None and token.liquidity_usd >= 25_000:
-        score += 1
-        reasons.append("minimum liquidity confirmed")
+        if has_momentum or has_turnover or fomo_activity_score > 0:
+            score += 1
+            reasons.append("minimum liquidity confirmed")
+
     if fomo_activity_score > 0:
         score += min(fomo_activity_score, 3)
         reasons.append("FOMO activity confirmation")
@@ -65,4 +77,4 @@ def score_token(
         return Signal("STRONG_BUY", score, tuple(reasons))
     if score >= cfg.buy_score:
         return Signal("BUY", score, tuple(reasons))
-    return Signal("HOLD", score, tuple(reasons or ["insufficient evidence"]))
+    return Signal("HOLD", score, tuple(reasons or ["insufficient evidence"])))

@@ -30,12 +30,22 @@ def _finite_non_negative(value: float, name: str) -> None:
         raise ValueError(f"{name} must be finite and non-negative")
 
 
-def calculate_performance(result: BacktestResult) -> PerformanceReport:
-    """Calculate risk and return metrics from an existing backtest result."""
+def calculate_performance(
+    result: BacktestResult,
+    *,
+    buy_and_hold_return_pct: float = 0.0,
+) -> PerformanceReport:
+    """Calculate risk and return metrics from an existing backtest result.
+
+    The benchmark is supplied by the caller because BacktestResult intentionally
+    stores the equity curve rather than the raw price series.
+    """
     if result.initial_balance <= 0 or not isfinite(result.initial_balance):
         raise ValueError("result initial_balance must be positive and finite")
     if not result.equity_curve:
         raise ValueError("result equity_curve must not be empty")
+    if not isfinite(buy_and_hold_return_pct):
+        raise ValueError("buy_and_hold_return_pct must be finite")
 
     _finite_non_negative(result.max_drawdown_pct, "max_drawdown_pct")
 
@@ -59,23 +69,6 @@ def calculate_performance(result: BacktestResult) -> PerformanceReport:
         profit_factor = float("inf")
     else:
         profit_factor = 0.0
-
-    first_price = result.equity_curve[0]
-    if first_price <= 0 or not isfinite(first_price):
-        raise ValueError("equity curve must start with a positive finite value")
-
-    # The backtest result does not retain the raw price series. For the
-    # baseline engine, the first equity equals initial balance, while the
-    # final equity includes any open position. Buy-and-hold is therefore
-    # intentionally reported only when no trades were made.
-    if not result.trades:
-        buy_and_hold_return_pct = (
-            (result.final_equity - result.initial_balance)
-            / result.initial_balance
-            * 100
-        )
-    else:
-        buy_and_hold_return_pct = 0.0
 
     strategy_edge_pct = result.total_return_pct - buy_and_hold_return_pct
 

@@ -1,3 +1,5 @@
+import pytest
+
 from risk import RiskLimits, RiskManager, approve_order, calculate_position_size
 
 
@@ -96,4 +98,4 @@ def test_total_exposure_limit_caps_new_entry():
         current_equity=10,
     )
     assert decision.approved is True
-    assert decision.quantity == 0.01
+    assert decision.quantity == pytest.approx(0.01)

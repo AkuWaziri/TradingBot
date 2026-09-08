@@ -1,4 +1,4 @@
-"""Read-only DexScreener market data for Solana token candidates.
+"""Read-only DexScreener market and discovery data for Solana.
 
 This module never signs, submits, or simulates a transaction. It only normalizes
 public market observations for the strategy layer.
@@ -89,7 +89,7 @@ class DexScreenerPair:
 
 
 class DexScreenerProvider:
-    """Read-only adapter for DexScreener's public Solana token endpoints."""
+    """Read-only adapter for DexScreener's public Solana endpoints."""
 
     _MAX_TOKEN_ADDRESSES = 30
 
@@ -186,6 +186,34 @@ class DexScreenerProvider:
         except ValueError as exc:
             raise LiveMarketError(str(exc)) from exc
         return pair
+
+    def latest_solana_token_addresses(self, *, limit: int = 30) -> list[str]:
+        """Return recent Solana token addresses from DexScreener discovery.
+
+        This is an interim discovery source for scheduled observation. It is not
+        treated as a real-time firehose; the future production discovery layer
+        will consume Solana events directly.
+        """
+        if not 1 <= limit <= self._MAX_TOKEN_ADDRESSES:
+            raise ValueError("limit must be between 1 and 30")
+
+        payload = _get_json(f"{self.base_url}/token-profiles/latest/v1", timeout=self.timeout)
+        if not isinstance(payload, list):
+            raise LiveMarketError("DexScreener token-profile response is not a list")
+
+        addresses: list[str] = []
+        seen: set[str] = set()
+        for item in payload:
+            if not isinstance(item, dict) or item.get("chainId") != "solana":
+                continue
+            address = str(item.get("tokenAddress") or "").strip()
+            if not address or address in seen:
+                continue
+            seen.add(address)
+            addresses.append(address)
+            if len(addresses) >= limit:
+                break
+        return addresses
 
     def pairs_by_tokens(self, token_addresses: list[str]) -> list[DexScreenerPair]:
         addresses = list(dict.fromkeys(address.strip() for address in token_addresses if address and address.strip()))

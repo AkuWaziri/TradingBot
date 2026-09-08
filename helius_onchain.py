@@ -96,7 +96,17 @@ class HeliusProvider:
         try:
             with urlopen(request, timeout=self.timeout) as response:
                 payload = json.loads(response.read().decode("utf-8"))
-        except (HTTPError, URLError, TimeoutError, OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        except HTTPError as exc:
+            try:
+                response_body = exc.read().decode("utf-8", errors="replace").strip()
+            except OSError:
+                response_body = ""
+            # Never expose the API key if a provider echoes request information.
+            if self.api_key:
+                response_body = response_body.replace(self.api_key, "<redacted>")
+            detail = response_body[:500] if response_body else exc.reason
+            raise HeliusOnchainError(f"Helius HTTP {exc.code}: {detail}") from exc
+        except (URLError, TimeoutError, OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise HeliusOnchainError(f"Helius request failed: {exc}") from exc
 
         if not isinstance(payload, dict):

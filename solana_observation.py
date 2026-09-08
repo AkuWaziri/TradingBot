@@ -112,6 +112,16 @@ def format_observations(observations: list[Observation]) -> str:
 
         market = intelligence.market
         onchain = intelligence.onchain
+        top_account = (
+            f"{onchain.top_account_share:.2%}"
+            if onchain.top_account_share is not None
+            else "N/A"
+        )
+        flow = (
+            f"{market.buy_sell_ratio_5m:.2f}"
+            if market.buy_sell_ratio_5m is not None and market.buy_sell_ratio_5m != float("inf")
+            else ("inf" if market.buy_sell_ratio_5m is not None else "N/A")
+        )
         lines.append(
             f"{intelligence.decision} {identity} | confidence={intelligence.confidence:.2f} "
             f"dex={intelligence.dex_id} "
@@ -119,10 +129,10 @@ def format_observations(observations: list[Observation]) -> str:
             f"liq=${market.liquidity_usd:.4g} "
             f"mcap=${market.market_cap_usd:.4g} "
             f"vol5m=${market.volume_5m_usd:.4g} "
-            f"flow5m={market.buy_sell_ratio_5m if market.buy_sell_ratio_5m is not None else 'N/A'} "
+            f"flow5m={flow} "
             f"m5={market.price_change_5m_pct:.3g}% "
             f"h1={market.price_change_1h_pct:.3g}% "
-            f"top_account={onchain.top_account_share:.2% if onchain.top_account_share is not None else 'N/A'} "
+            f"top_account={top_account} "
             f"reasons={';'.join(intelligence.reasons[:4])}"
         )
 

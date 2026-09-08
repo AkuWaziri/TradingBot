@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from math import isclose
 
 
 @dataclass(frozen=True)
@@ -54,7 +55,9 @@ class RiskManager:
         if starting_day_equity <= 0 or current_equity < 0:
             return True
         loss = (starting_day_equity - current_equity) / starting_day_equity
-        return loss >= self.limits.max_daily_loss_pct
+        return loss > self.limits.max_daily_loss_pct or isclose(
+            loss, self.limits.max_daily_loss_pct, rel_tol=1e-12, abs_tol=1e-12
+        )
 
     def approve_entry(
         self,

@@ -180,6 +180,8 @@ class PumpFunProvider:
 class CoinGeckoProvider:
     """Read-only CoinGecko token-price cross-check for Solana tokens."""
 
+    _MAX_CONTRACTS_PER_REQUEST = 50
+
     def __init__(
         self,
         *,
@@ -197,17 +199,7 @@ class CoinGeckoProvider:
         self.platform = platform
         self.timeout = timeout
 
-    def prices_by_contracts(
-        self, contracts: list[str]
-    ) -> dict[str, dict[str, float | None]]:
-        contracts = [c.strip() for c in contracts if c and c.strip()]
-        if not contracts:
-            return {}
-        if len(contracts) > 50:
-            raise ValueError("CoinGecko contract lookup is limited to 50 addresses per request")
-        if not self.api_key:
-            raise LiveMarketError("COINGECKO_API_KEY is not configured")
-
+    def _prices_batch(self, contracts: list[str]) -> dict[str, dict[str, float | None]]:
         query = urlencode(
             {
                 "contract_addresses": ",".join(contracts),
@@ -220,7 +212,7 @@ class CoinGeckoProvider:
         )
         payload = _get_json(
             f"{self.base_url}/simple/token_price/{self.platform}?{query}",
-            headers={"x-cg-demo-api-key": self.api_key},
+            headers={"x-cg-demo-api-key": self.api_key or ""},
             timeout=self.timeout,
         )
         if not isinstance(payload, dict):
@@ -239,6 +231,21 @@ class CoinGeckoProvider:
             }
         return result
 
+    def prices_by_contracts(
+        self, contracts: list[str]
+    ) -> dict[str, dict[str, float | None]]:
+        contracts = list(dict.fromkeys(c.strip() for c in contracts if c and c.strip()))
+        if not contracts:
+            return {}
+        if not self.api_key:
+            raise LiveMarketError("COINGECKO_API_KEY is not configured")
+
+        result: dict[str, dict[str, float | None]] = {}
+        for start in range(0, len(contracts), self._MAX_CONTRACTS_PER_REQUEST):
+            batch = contracts[start : start + self._MAX_CONTRACTS_PER_REQUEST]
+            result.update(self._prices_batch(batch))
+        return result
+
     def enrich(self, tokens: list[LiveToken]) -> list[LiveToken]:
         prices = self.prices_by_contracts([token.mint for token in tokens])
         enriched: list[LiveToken] = []
@@ -249,7 +256,11 @@ class CoinGeckoProvider:
                     mint=token.mint,
                     symbol=token.symbol,
                     name=token.name,
-                    price_usd=data.get("price_usd"),
+                    price_usd=(
+                        data["price_usd"]
+                        if data.get("price_usd") is not None
+                        else token.price_usd
+                    ),
                     market_cap_usd=(
                         data["market_cap_usd"]
                         if data.get("market_cap_usd") is not None

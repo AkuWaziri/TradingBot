@@ -79,7 +79,12 @@ class HeliusProvider:
             raise HeliusOnchainError("Helius RPC URL must use HTTPS")
 
         body = json.dumps({"jsonrpc": "2.0", "id": "trading-bot", "method": method, "params": params}).encode("utf-8")
-        request = Request(f"{self.base_url}/?api-key={self.api_key}", data=body, method="POST", headers={"Accept": "application/json", "Content-Type": "application/json"})
+        request = Request(
+            f"{self.base_url}/?api-key={self.api_key}",
+            data=body,
+            method="POST",
+            headers={"Accept": "application/json", "Content-Type": "application/json"},
+        )
         try:
             with urlopen(request, timeout=self.timeout) as response:
                 payload = json.loads(response.read().decode("utf-8"))
@@ -133,7 +138,16 @@ class HeliusProvider:
         mint = mint.strip()
         if not mint:
             raise ValueError("mint is required")
-        result = self._rpc("getAsset", [mint, {"showFungible": True}])
+        # Helius DAS getAsset uses an object for params. displayOptions.showFungible
+        # must be nested under displayOptions; passing [mint, {...}] invokes the
+        # legacy positional shape and is rejected by the current RPC endpoint.
+        result = self._rpc(
+            "getAsset",
+            {
+                "id": mint,
+                "displayOptions": {"showFungible": True},
+            },
+        )
         if not isinstance(result, dict):
             raise HeliusOnchainError("getAsset result is not an object")
         return result
@@ -157,7 +171,14 @@ class HeliusProvider:
             decimals = self._int(item.get("decimals"), "token account decimals")
             if raw is None or decimals is None or decimals > 255:
                 raise HeliusOnchainError("invalid token account balance")
-            accounts.append(TokenAccountShare(address=address, raw_amount=raw, decimals=decimals, ui_amount=self._float(item.get("uiAmount"), "token account UI amount")))
+            accounts.append(
+                TokenAccountShare(
+                    address=address,
+                    raw_amount=raw,
+                    decimals=decimals,
+                    ui_amount=self._float(item.get("uiAmount"), "token account UI amount"),
+                )
+            )
         return accounts
 
     def get_supply(self, mint: str) -> tuple[int, int]:
@@ -204,6 +225,18 @@ class HeliusProvider:
         indexed_slot = self._int(asset.get("last_indexed_slot"), "last indexed slot")
         top_accounts = tuple(self.get_largest_accounts(mint))
 
-        state = SolanaTokenState(mint=mint, symbol=symbol, name=name, supply_raw=supply_raw, decimals=decimals, token_program=token_program, mint_authority=mint_authority, freeze_authority=freeze_authority, price_usd=price_usd, top_accounts=top_accounts, indexed_slot=indexed_slot)
+        state = SolanaTokenState(
+            mint=mint,
+            symbol=symbol,
+            name=name,
+            supply_raw=supply_raw,
+            decimals=decimals,
+            token_program=token_program,
+            mint_authority=mint_authority,
+            freeze_authority=freeze_authority,
+            price_usd=price_usd,
+            top_accounts=top_accounts,
+            indexed_slot=indexed_slot,
+        )
         state.validate()
         return state

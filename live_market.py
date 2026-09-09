@@ -60,23 +60,27 @@ def _get_json(
 ) -> Any:
     if not url.startswith("https://"):
         raise LiveMarketError("live provider URLs must use HTTPS")
-    request = Request(
-        url,
-        method="GET",
-        headers={"Accept": "application/json", **(headers or {})},
-    )
+
+    request_headers = {
+        "Accept": "application/json",
+        "User-Agent": "TradingBot/1.0 (read-only market observation)",
+        **(headers or {}),
+    }
+    request = Request(url, method="GET", headers=request_headers)
     try:
         with urlopen(request, timeout=timeout) as response:
             return json.loads(response.read().decode("utf-8"))
-    except (
-        HTTPError,
-        URLError,
-        TimeoutError,
-        OSError,
-        UnicodeDecodeError,
-        json.JSONDecodeError,
-    ) as exc:
-        raise LiveMarketError(f"live provider request failed: {exc}") from exc
+    except HTTPError as exc:
+        try:
+            body = exc.read().decode("utf-8", errors="replace").strip()
+        except OSError:
+            body = ""
+        detail = body[:300] if body else str(exc.reason)
+        raise LiveMarketError(
+            f"live provider HTTP {exc.code} for {url.split('?')[0]}: {detail}"
+        ) from exc
+    except (URLError, TimeoutError, OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise LiveMarketError(f"live provider request failed for {url.split('?')[0]}: {exc}") from exc
 
 
 def _optional_float(value: Any) -> float | None:
@@ -148,9 +152,6 @@ class PumpFunProvider:
                 except (TypeError, ValueError, OSError, OverflowError):
                     created_at = None
 
-            # Pump.fun currently-live does not provide a trustworthy USD spot
-            # price in the fields we consume here. Keep it None rather than
-            # deriving a price from market cap/reserves and creating false data.
             token = LiveToken(
                 mint=mint,
                 symbol=str(item.get("symbol") or "").strip(),
@@ -256,26 +257,10 @@ class CoinGeckoProvider:
                     mint=token.mint,
                     symbol=token.symbol,
                     name=token.name,
-                    price_usd=(
-                        data["price_usd"]
-                        if data.get("price_usd") is not None
-                        else token.price_usd
-                    ),
-                    market_cap_usd=(
-                        data["market_cap_usd"]
-                        if data.get("market_cap_usd") is not None
-                        else token.market_cap_usd
-                    ),
-                    volume_24h_usd=(
-                        data["volume_24h_usd"]
-                        if data.get("volume_24h_usd") is not None
-                        else token.volume_24h_usd
-                    ),
-                    price_change_24h_pct=(
-                        data["price_change_24h_pct"]
-                        if data.get("price_change_24h_pct") is not None
-                        else token.price_change_24h_pct
-                    ),
+                    price_usd=(data["price_usd"] if data.get("price_usd") is not None else token.price_usd),
+                    market_cap_usd=(data["market_cap_usd"] if data.get("market_cap_usd") is not None else token.market_cap_usd),
+                    volume_24h_usd=(data["volume_24h_usd"] if data.get("volume_24h_usd") is not None else token.volume_24h_usd),
+                    price_change_24h_pct=(data["price_change_24h_pct"] if data.get("price_change_24h_pct") is not None else token.price_change_24h_pct),
                     liquidity_usd=token.liquidity_usd,
                     created_at=token.created_at,
                     source="pump.fun+coingecko" if data else token.source,

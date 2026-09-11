@@ -1,4 +1,4 @@
-"""Telegram delivery for read-only Solana scan results.
+"""Telegram delivery for read-only Solana scan and research results.
 
 This module has no trading, wallet, signing, or transaction functionality.
 """
@@ -11,6 +11,7 @@ import urllib.parse
 import urllib.request
 
 from qualified_monitor import format_telegram_alerts, scan_tokens
+from telegram_advanced import enrich_qualified, format_advanced_section
 
 
 def send_telegram(text: str) -> None:
@@ -65,14 +66,42 @@ def format_scan_status(scan) -> str:
     return "\n".join(lines)
 
 
+def build_message(scan) -> str:
+    sections = [format_scan_status(scan)]
+    if not scan.qualified:
+        sections.append(format_telegram_alerts([]))
+        return "\n\n".join(sections)
+
+    sections.append(format_telegram_alerts(list(scan.qualified)))
+    advanced_limit = int(os.getenv("ADVANCED_INTELLIGENCE_LIMIT", "5"))
+    signature_limit = int(os.getenv("ADVANCED_SIGNATURE_LIMIT", "50"))
+    max_transactions = int(os.getenv("ADVANCED_MAX_TRANSACTIONS", "40"))
+    try:
+        reports = enrich_qualified(
+            list(scan.qualified),
+            limit=advanced_limit,
+            signature_limit=signature_limit,
+            max_transactions=max_transactions,
+        )
+        for qualification in sorted(scan.qualified, key=lambda item: item.score, reverse=True):
+            report = reports.get(qualification.mint)
+            if report is not None:
+                sections.append(
+                    f"🧾 {qualification.symbol} · {qualification.mint}\n"
+                    + format_advanced_section(report)
+                )
+    except Exception as exc:
+        sections.append(
+            "⚠️ Advanced research unavailable for this scan; qualification results are unchanged."
+        )
+        print(f"Advanced intelligence unavailable: {type(exc).__name__}: {exc}")
+    return "\n\n".join(sections)
+
+
 def main() -> None:
     limit = int(os.getenv("OBSERVATION_LIMIT", "30"))
     scan = scan_tokens(limit=limit)
-
-    if scan.qualified:
-        message = format_telegram_alerts(list(scan.qualified))
-    else:
-        message = format_scan_status(scan)
+    message = build_message(scan)
 
     send_telegram(message)
     print(

@@ -80,11 +80,11 @@ def make_state(**changes):
         freeze_authority=None,
         price_usd=0.0012,
         top_accounts=(
-            TokenAccountShare("A", 100_000, 0, 100_000),
-            TokenAccountShare("B", 70_000, 0, 70_000),
-            TokenAccountShare("C", 50_000, 0, 50_000),
-            TokenAccountShare("D", 40_000, 0, 40_000),
-            TokenAccountShare("E", 30_000, 0, 30_000),
+            TokenAccountShare("A", 100_000, 0, 100_000, "WalletA"),
+            TokenAccountShare("B", 70_000, 0, 70_000, "WalletB"),
+            TokenAccountShare("C", 50_000, 0, 50_000, "WalletC"),
+            TokenAccountShare("D", 40_000, 0, 40_000, "WalletD"),
+            TokenAccountShare("E", 30_000, 0, 30_000, "WalletE"),
         ),
         indexed_slot=123,
     )
@@ -100,7 +100,7 @@ def test_market_features_are_deterministic():
     assert features.volume_5m_to_mcap == pytest.approx(1_200 / 1_200_000)
 
 
-def test_onchain_concentration_uses_token_accounts_not_wallets():
+def test_onchain_concentration_uses_wallet_owners():
     features = build_onchain_features(make_state())
     assert features.top_account_share == pytest.approx(0.10)
     assert features.top_5_account_share == pytest.approx(0.29)

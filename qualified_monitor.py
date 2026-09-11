@@ -1,15 +1,19 @@
-"""Read-only Solana monitor that emits only qualified tokens."""
+"""Read-only Solana monitor that emits only mature-qualified tokens."""
 
 from __future__ import annotations
 
+import os
 from collections import Counter
 from dataclasses import dataclass
 
+from advanced_intelligence import AdvancedIntelligence, inspect_advanced_intelligence
+from advanced_qualification import AdvancedQualification, evaluate_advanced
 from dexscreener_market import DexScreenerPair, DexScreenerProvider
 from discovery import discover_candidates
 from helius_onchain import HeliusProvider, HeliusOnchainError
 from live_market import LiveMarketError, LiveToken
 from qualification_engine import Qualification, Qualifier
+from telegram_advanced import CachedHeliusProvider
 
 
 @dataclass(frozen=True)
@@ -30,6 +34,7 @@ class ScanResult:
     evaluated: int
     qualified: tuple[Qualification, ...]
     rejection_reasons: tuple[tuple[str, int], ...]
+    advanced_reports: tuple[tuple[str, AdvancedIntelligence, AdvancedQualification], ...] = ()
 
 
 QUALIFICATION_CHECKS = (
@@ -76,7 +81,7 @@ def token_from_pair(pair: DexScreenerPair) -> LiveToken:
 
 
 def scan_tokens(limit: int = 30) -> ScanResult:
-    """Run one read-only scan and expose stage/rejection statistics."""
+    """Run one read-only scan through core gates and advanced risk gates."""
     if not 1 <= limit <= 30:
         raise ValueError("limit must be between 1 and 30")
 
@@ -91,9 +96,16 @@ def scan_tokens(limit: int = 30) -> ScanResult:
         grouped.setdefault(pair.base_token_address, []).append(pair)
 
     qualified: list[Qualification] = []
+    advanced_reports: list[tuple[str, AdvancedIntelligence, AdvancedQualification]] = []
     rejection_reasons: Counter[str] = Counter()
     market_data_available = 0
     evaluated = 0
+
+    advanced_provider = CachedHeliusProvider(
+        provider=helius,
+        signature_limit=int(os.getenv("ADVANCED_QUALIFICATION_SIGNATURE_LIMIT", "40")),
+    )
+    advanced_max_transactions = int(os.getenv("ADVANCED_QUALIFICATION_MAX_TRANSACTIONS", "30"))
 
     for candidate in candidates:
         mint = candidate.mint
@@ -117,15 +129,37 @@ def scan_tokens(limit: int = 30) -> ScanResult:
             continue
 
         evaluated += 1
-        if result.qualified:
-            qualified.append(result)
+        if not result.qualified:
+            if result.hard_flags:
+                for reason in result.hard_flags:
+                    rejection_reasons[reason] += 1
+            else:
+                rejection_reasons[f"score_below_{qualifier.minimum_score:.0f}"] += 1
             continue
 
-        if result.hard_flags:
-            for reason in result.hard_flags:
+        # Mature qualification is fail-closed: a core pass is not a final pass
+        # until bounded transaction evidence and advanced risk gates also pass.
+        try:
+            signature_limit = advanced_provider._signature_limit
+            intelligence = inspect_advanced_intelligence(
+                mint,
+                provider=advanced_provider,
+                signature_limit=signature_limit,
+                max_transactions=min(advanced_max_transactions, signature_limit),
+            )
+            advanced = evaluate_advanced(intelligence)
+        except (HeliusOnchainError, LiveMarketError, ValueError) as exc:
+            rejection_reasons["advanced_intelligence_unavailable"] += 1
+            print(f"Advanced qualification unavailable for {mint}: {type(exc).__name__}: {exc}")
+            continue
+
+        if not advanced.qualified:
+            for reason in advanced.hard_flags:
                 rejection_reasons[reason] += 1
-        else:
-            rejection_reasons[f"score_below_{qualifier.minimum_score:.0f}"] += 1
+            continue
+
+        qualified.append(result)
+        advanced_reports.append((mint, intelligence, advanced))
 
     return ScanResult(
         requested=limit,
@@ -133,12 +167,13 @@ def scan_tokens(limit: int = 30) -> ScanResult:
         market_data_available=market_data_available,
         evaluated=evaluated,
         qualified=tuple(qualified),
-        rejection_reasons=tuple(rejection_reasons.most_common(8)),
+        rejection_reasons=tuple(rejection_reasons.most_common(12)),
+        advanced_reports=tuple(advanced_reports),
     )
 
 
 def find_qualified_tokens(limit: int = 30) -> list[Qualification]:
-    """Compatibility wrapper returning only qualified tokens."""
+    """Compatibility wrapper returning only mature-qualified tokens."""
     return list(scan_tokens(limit=limit).qualified)
 
 

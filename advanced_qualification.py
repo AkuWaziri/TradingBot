@@ -104,10 +104,14 @@ def evaluate_advanced(
     if flow.observed_buys >= config.hard_one_sided_buy_count and flow.observed_sells == 0:
         hard.append("advanced_one_sided_observed_flow")
 
+    largest_related_group_size = max(
+        (len(group.wallets) for group in bundle.possible_related_groups),
+        default=0,
+    )
     if (
         bundle.largest_group_share is not None
         and bundle.largest_group_share >= config.hard_related_group_share
-        and bundle.wallets_in_related_groups >= config.hard_related_group_min_wallets
+        and largest_related_group_size >= config.hard_related_group_min_wallets
     ):
         hard.append("advanced_possible_related_wallet_cluster_too_large")
     elif bundle.possible_related_groups:

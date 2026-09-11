@@ -1,4 +1,4 @@
-"""Telegram delivery for read-only Solana scan and research results.
+"""Telegram delivery for read-only Solana scan and mature qualification results.
 
 This module has no trading, wallet, signing, or transaction functionality.
 """
@@ -11,10 +11,14 @@ import urllib.parse
 import urllib.request
 
 from qualified_monitor import format_telegram_alerts, scan_tokens
-from telegram_advanced import enrich_qualified, format_advanced_section
+from telegram_advanced import TelegramAdvancedReport, format_advanced_section
 
 
-def send_telegram(text: str) -> None:
+TELEGRAM_MAX_TEXT = 4096
+TELEGRAM_SAFE_TEXT = 3900
+
+
+def _send_one_telegram(text: str) -> None:
     token = os.getenv("TELEGRAM_BOT_TOKEN", "")
     chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
     if not token or not chat_id:
@@ -41,11 +45,46 @@ def send_telegram(text: str) -> None:
         raise RuntimeError("Telegram API rejected the message")
 
 
+def _telegram_chunks(text: str, limit: int = TELEGRAM_SAFE_TEXT) -> list[str]:
+    """Split at section boundaries so long research reports remain readable."""
+    if len(text) <= limit:
+        return [text]
+
+    chunks: list[str] = []
+    current = ""
+    for section in text.split("\n\n"):
+        candidate = section if not current else current + "\n\n" + section
+        if len(candidate) <= limit:
+            current = candidate
+            continue
+        if current:
+            chunks.append(current)
+        if len(section) <= limit:
+            current = section
+            continue
+        # Defensive fallback for an unexpectedly large single section.
+        for start in range(0, len(section), limit):
+            chunks.append(section[start:start + limit])
+        current = ""
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def send_telegram(text: str) -> None:
+    """Send one or more Telegram messages without exceeding Telegram's text limit."""
+    for chunk in _telegram_chunks(text):
+        if len(chunk) > TELEGRAM_MAX_TEXT:
+            raise RuntimeError("Telegram message chunk exceeds the platform limit")
+        _send_one_telegram(chunk)
+
+
 def format_scan_status(scan) -> str:
     lines = [
         "🔎 SOLANA MONITOR",
         "────────────────────",
         "📡 Scan completed",
+        "🧠 Mature qualification: core gates + advanced risk gates",
         f"🎯 Candidates discovered: {scan.discovered}/{scan.requested}",
         f"📊 Market data available: {scan.market_data_available}",
         f"⛓️ Fully evaluated: {scan.evaluated}",
@@ -73,28 +112,25 @@ def build_message(scan) -> str:
         return "\n\n".join(sections)
 
     sections.append(format_telegram_alerts(list(scan.qualified)))
-    advanced_limit = int(os.getenv("ADVANCED_INTELLIGENCE_LIMIT", "3"))
-    signature_limit = int(os.getenv("ADVANCED_SIGNATURE_LIMIT", "50"))
-    max_transactions = int(os.getenv("ADVANCED_MAX_TRANSACTIONS", "40"))
-    try:
-        reports = enrich_qualified(
-            list(scan.qualified),
-            limit=advanced_limit,
-            signature_limit=signature_limit,
-            max_transactions=max_transactions,
-        )
-        for qualification in sorted(scan.qualified, key=lambda item: item.score, reverse=True):
-            report = reports.get(qualification.mint)
-            if report is not None:
-                sections.append(
-                    f"🧾 {qualification.symbol} · {qualification.mint}\n"
-                    + format_advanced_section(report)
-                )
-    except Exception as exc:
+    reports_by_mint = {mint: (intelligence, advanced) for mint, intelligence, advanced in scan.advanced_reports}
+    for qualification in sorted(scan.qualified, key=lambda item: item.score, reverse=True):
+        item = reports_by_mint.get(qualification.mint)
+        if item is None:
+            continue
+        intelligence, advanced = item
+        report = TelegramAdvancedReport(intelligence)
+        advanced_lines = [
+            f"🧠 Advanced risk: {advanced.risk_level}",
+            f"📚 Evidence coverage: {advanced.evidence_coverage:.0%}",
+        ]
+        if advanced.warnings:
+            advanced_lines.append("⚠️ Advanced warnings: " + ", ".join(advanced.warnings))
         sections.append(
-            "⚠️ Advanced research unavailable for this scan; qualification results are unchanged."
+            f"🧾 {qualification.symbol} · {qualification.mint}\n"
+            + format_advanced_section(report)
+            + "\n"
+            + "\n".join(advanced_lines)
         )
-        print(f"Advanced intelligence unavailable: {type(exc).__name__}: {exc}")
     return "\n\n".join(sections)
 
 
@@ -109,6 +145,7 @@ def main() -> None:
         f"discovered={scan.discovered}; "
         f"evaluated={scan.evaluated}; "
         f"qualified={len(scan.qualified)}; "
+        f"advanced_reports={len(scan.advanced_reports)}; "
         "execution=disabled"
     )
 

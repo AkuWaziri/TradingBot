@@ -77,6 +77,7 @@ def format_scan_status(scan) -> str:
     lines = [
         "🔎 SOLANA MONITOR",
         "────────────────────",
+        "🧠 Mature qualification: core gates + advanced risk gates",
         f"📡 {scan.discovered}/{scan.requested} candidates discovered",
         f"⛓️ {scan.evaluated} core evaluated · {scan.core_qualified} core-qualified",
         f"🔬 {scan.advanced_evaluated} advanced evaluated · {len(scan.qualified)} mature-qualified",
@@ -102,6 +103,7 @@ def _core_section(scan) -> str:
     for index, item in enumerate(sorted(scan.core_qualified_tokens, key=lambda x: x.qualification.score, reverse=True), start=1):
         q = item.qualification
         flow = "N/A" if q.buy_sell_ratio_5m is None else ("∞" if q.buy_sell_ratio_5m == float("inf") else f"{q.buy_sell_ratio_5m:.2f}")
+        warning_line = ["⚠️ Core warnings: " + ", ".join(q.warnings)] if q.warnings else []
         blocks.append("\n".join([
             f"\n#{index}  {q.symbol} · {q.score:.0f}/100",
             f"🧾 CA: {q.mint}",
@@ -109,7 +111,7 @@ def _core_section(scan) -> str:
             f"📈 5m {q.price_change_5m_pct:+.2f}% · 1h {q.price_change_1h_pct:+.2f}% · Vol {_money(q.volume_5m_usd)} · B/S {flow}",
             f"🧪 Mature status: {item.mature_status}",
             "✅ Core: " + ", ".join(q.positives),
-            *( ["⚠️ Core warnings: " + ", ".join(q.warnings)] if q.warnings else [] ),
+            *warning_line,
         ]))
     return "\n\n".join(blocks)
 
@@ -123,8 +125,7 @@ def _money(value: float) -> str:
 
 
 def build_message(scan) -> str:
-    sections = [format_scan_status(scan), _core_section(scan)]
-    sections.append(format_telegram_alerts(list(scan.qualified)))
+    sections = [format_scan_status(scan), _core_section(scan), format_telegram_alerts(list(scan.qualified))]
     reports_by_mint = {mint: (intelligence, advanced) for mint, intelligence, advanced in scan.advanced_reports}
     for qualification in sorted(scan.qualified, key=lambda item: item.score, reverse=True):
         item = reports_by_mint.get(qualification.mint)

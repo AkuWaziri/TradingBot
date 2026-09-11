@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+from qualified_monitor import summarize_rejections
 from telegram_scan import _telegram_chunks, format_scan_status
 
 
@@ -12,7 +13,23 @@ def test_telegram_chunks_respect_safe_limit():
     assert "section " in chunks[0]
 
 
-def test_scan_status_exposes_mature_pipeline():
+def test_rejections_are_separated_for_calibration():
+    grouped = summarize_rejections((
+        ("top_token_account_concentration_too_high", 4),
+        ("advanced_transaction_data_too_incomplete", 2),
+        ("helius_error", 3),
+        ("data_validation_error", 1),
+    ))
+
+    assert grouped["risk_rejection"] == (("top_token_account_concentration_too_high", 4),)
+    assert grouped["data_insufficient"] == (
+        ("advanced_transaction_data_too_incomplete", 2),
+        ("data_validation_error", 1),
+    )
+    assert grouped["provider_failure"] == (("helius_error", 3),)
+
+
+def test_scan_status_exposes_mature_pipeline_and_failure_classes():
     scan = SimpleNamespace(
         discovered=10,
         requested=10,
@@ -21,7 +38,11 @@ def test_scan_status_exposes_mature_pipeline():
         core_qualified=4,
         advanced_evaluated=4,
         qualified=(1, 2),
-        rejection_reasons=(("advanced_single_wallet_flow_concentration_too_high", 2),),
+        rejection_reasons=(
+            ("advanced_single_wallet_flow_concentration_too_high", 2),
+            ("advanced_transaction_data_too_incomplete", 1),
+            ("helius_error", 3),
+        ),
     )
 
     message = format_scan_status(scan)
@@ -30,3 +51,7 @@ def test_scan_status_exposes_mature_pipeline():
     assert "🧪 Core-qualified: 4" in message
     assert "🔬 Advanced evaluated: 4" in message
     assert "🟢 Mature qualified: 2" in message
+    assert "🔴 Risk rejected:" in message
+    assert "⚫ Data insufficient:" in message
+    assert "🟠 Provider / technical failure:" in message
+    assert "Evidence coverage" not in message

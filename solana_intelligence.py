@@ -38,10 +38,6 @@ class IntelligenceConfig:
     max_top_5_account_share: float = 0.45
     min_momentum_5m_pct: float = 0.0
     min_momentum_1h_pct: float = 0.0
-    # A severe short-window drawdown is treated as a hard qualification failure.
-    # This prevents a token from qualifying on other metrics while it is already
-    # undergoing an abnormal rapid selloff. The broader momentum check remains
-    # score-based for ordinary negative movement.
     max_extreme_negative_5m_pct: float = -15.0
     min_data_freshness_seconds: float = 180.0
 
@@ -158,16 +154,40 @@ def build_market_features(pair: DexScreenerPair, *, now: datetime | None = None)
 
 def build_onchain_features(state: SolanaTokenState) -> OnchainFeatures:
     supply = state.supply_raw
-    shares = [_account_share(account.raw_amount, supply) for account in state.top_accounts]
-    valid = [share for share in shares if share is not None]
+    if supply is None or supply <= 0:
+        raise ValueError("token supply is unavailable")
+    if not state.top_accounts:
+        raise ValueError("holder concentration data is unavailable")
+    if any(account.owner is None for account in state.top_accounts):
+        raise ValueError("holder owner resolution is unavailable")
+
+    owner_balances: dict[str, int] = {}
+    for account in state.top_accounts:
+        owner = account.owner
+        if owner is None:
+            raise ValueError("holder owner resolution is unavailable")
+        owner_balances[owner] = owner_balances.get(owner, 0) + account.raw_amount
+
+    owner_shares = sorted(
+        (
+            share
+            for amount in owner_balances.values()
+            for share in [_account_share(amount, supply)]
+            if share is not None
+        ),
+        reverse=True,
+    )
+    if not owner_shares:
+        raise ValueError("holder concentration data is unavailable")
+
     return OnchainFeatures(
         mint_authority_present=bool(state.mint_authority),
         freeze_authority_present=bool(state.freeze_authority),
-        top_account_share=valid[0] if valid else None,
-        top_5_account_share=sum(valid[:5]) if valid else None,
-        top_20_account_share=sum(valid[:20]) if valid else None,
+        top_account_share=owner_shares[0],
+        top_5_account_share=sum(owner_shares[:5]),
+        top_20_account_share=sum(owner_shares[:20]),
         token_program=state.token_program,
-        supply_available=supply is not None and supply > 0,
+        supply_available=True,
     )
 
 
@@ -219,14 +239,10 @@ def evaluate_token(
             hard.append("mint_authority_present")
         if onchain.freeze_authority_present:
             hard.append("freeze_authority_present")
-        if onchain.top_account_share is None:
-            warnings.append("holder_concentration_unavailable")
-        elif onchain.top_account_share > config.max_top_account_share:
-            hard.append("top_token_account_concentration_too_high")
-        if onchain.top_5_account_share is not None and onchain.top_5_account_share > config.max_top_5_account_share:
-            hard.append("top_5_token_account_concentration_too_high")
-        if not onchain.supply_available:
-            hard.append("token_supply_unavailable")
+        if onchain.top_account_share > config.max_top_account_share:
+            hard.append("top_wallet_concentration_too_high")
+        if onchain.top_5_account_share > config.max_top_5_account_share:
+            hard.append("top_5_wallet_concentration_too_high")
 
     if market is not None:
         if market.age_minutes < config.min_age_minutes:

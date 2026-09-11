@@ -73,7 +73,7 @@ def build_message(scan) -> str:
         return "\n\n".join(sections)
 
     sections.append(format_telegram_alerts(list(scan.qualified)))
-    advanced_limit = int(os.getenv("ADVANCED_INTELLIGENCE_LIMIT", "5"))
+    advanced_limit = int(os.getenv("ADVANCED_INTELLIGENCE_LIMIT", "3"))
     signature_limit = int(os.getenv("ADVANCED_SIGNATURE_LIMIT", "50"))
     max_transactions = int(os.getenv("ADVANCED_MAX_TRANSACTIONS", "40"))
     try:

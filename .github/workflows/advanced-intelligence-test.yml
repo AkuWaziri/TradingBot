@@ -1,0 +1,95 @@
+name: Solana Advanced Intelligence Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      mint:
+        description: "Solana token mint / contract address"
+        required: true
+        type: string
+      signature_limit:
+        description: "Recent signatures to inspect"
+        required: false
+        default: "50"
+        type: string
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Inspect advanced intelligence
+        env:
+          HELIUS_API_KEY: ${{ secrets.HELIUS_API_KEY }}
+          HELIUS_RPC_BASE_URL: https://mainnet.helius-rpc.com
+        run: |
+          python - <<'PY'
+          import os
+          from advanced_intelligence import inspect_advanced_intelligence
+          from early_buyer_report import format_report
+
+          mint = os.environ["TARGET_MINT"]
+          limit = int(os.environ["SIGNATURE_LIMIT"])
+          result = inspect_advanced_intelligence(mint, signature_limit=limit, max_transactions=min(limit, 50))
+
+          print("SOLANA ADVANCED INTELLIGENCE")
+          print("mode=read-only; execution=disabled")
+          print(f"mint={result.mint}")
+          print("")
+          print("BUNDLE / RELATED WALLETS")
+          print(f"wallets_scanned={result.bundle.wallets_scanned}")
+          print(f"wallets_in_possible_related_groups={result.bundle.wallets_in_related_groups}")
+          print(f"largest_group_share={result.bundle.largest_group_share}")
+          for group in result.bundle.possible_related_groups:
+              print(f"possible_funder={group.funder} wallets={','.join(group.wallets)}")
+
+          print("")
+          print("CREATOR / DEPLOYER")
+          print(f"creator={result.creator.creator_wallet}")
+          print(f"creation_signature={result.creator.creation_signature}")
+          print(f"creation_slot={result.creator.creation_slot}")
+          print(f"creator_buys_observed={result.creator.creator_buys_observed}")
+          print(f"creator_sells_observed={result.creator.creator_sells_observed}")
+          print(f"creator_incomplete_transactions={result.creator.incomplete_transactions}")
+
+          print("")
+          print("FLOW / PARTICIPATION")
+          print(f"signatures_scanned={result.flow.signatures_scanned}")
+          print(f"transactions_parsed={result.flow.transactions_parsed}")
+          print(f"observed_buys={result.flow.observed_buys}")
+          print(f"observed_sells={result.flow.observed_sells}")
+          print(f"unique_buyers={result.flow.unique_buyers}")
+          print(f"unique_sellers={result.flow.unique_sellers}")
+          print(f"unique_participants={result.flow.unique_participants}")
+          print(f"buyer_participation_growth_ratio={result.flow.buyer_participation_growth_ratio}")
+          print(f"buy_flow_growth_ratio={result.flow.buy_flow_growth_ratio}")
+          print(f"incomplete_transactions={result.flow.incomplete_transactions}")
+
+          print("")
+          print("MANIPULATION / WASH-TRADE WARNINGS")
+          print(f"observed_trades={result.manipulation.observed_trades}")
+          print(f"unique_traders={result.manipulation.unique_traders}")
+          print(f"largest_trader_trade_share={result.manipulation.largest_trader_trade_share}")
+          print(f"largest_trader_flow_share={result.manipulation.largest_trader_flow_share}")
+          print(f"repeated_trader_share={result.manipulation.repeated_trader_share}")
+          print(f"buy_sell_count_ratio={result.manipulation.buy_sell_count_ratio}")
+          print(f"warnings={','.join(result.manipulation.warnings) or 'none'}")
+          print("")
+          print("IMPORTANT: possible related wallets and manipulation warnings are heuristic research signals, not proof of coordinated behavior.")
+          PY
+        env:
+          TARGET_MINT: ${{ inputs.mint }}
+          SIGNATURE_LIMIT: ${{ inputs.signature_limit }}

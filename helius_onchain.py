@@ -152,6 +152,36 @@ class HeliusProvider:
             raise HeliusOnchainError("getAsset result is not an object")
         return result
 
+    def get_recent_signatures(self, address: str, *, limit: int = 25) -> list[dict[str, Any]]:
+        """Return recent confirmed signatures for a Solana program/account."""
+        address = address.strip()
+        if not address:
+            raise ValueError("address is required")
+        if not 1 <= limit <= 1000:
+            raise ValueError("limit must be between 1 and 1000")
+        result = self._rpc(
+            "getSignaturesForAddress",
+            [address, {"limit": limit, "commitment": "confirmed"}],
+        )
+        if not isinstance(result, list):
+            raise HeliusOnchainError("invalid getSignaturesForAddress result")
+        return [item for item in result if isinstance(item, dict)]
+
+    def get_transaction(self, signature: str) -> dict[str, Any] | None:
+        """Return one parsed transaction, or None when it is not yet available."""
+        signature = signature.strip()
+        if not signature:
+            raise ValueError("signature is required")
+        result = self._rpc(
+            "getTransaction",
+            [signature, {"encoding": "jsonParsed", "commitment": "confirmed", "maxSupportedTransactionVersion": 0}],
+        )
+        if result is None:
+            return None
+        if not isinstance(result, dict):
+            raise HeliusOnchainError("invalid getTransaction result")
+        return result
+
     def get_largest_accounts(self, mint: str) -> list[TokenAccountShare]:
         mint = mint.strip()
         if not mint:

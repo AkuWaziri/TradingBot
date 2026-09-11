@@ -8,7 +8,7 @@ on:
       limit:
         description: "Number of newly discovered Solana tokens to inspect"
         required: false
-        default: "30"
+        default: "15"
         type: string
 
 jobs:
@@ -35,5 +35,5 @@ jobs:
           HELIUS_RPC_BASE_URL: https://mainnet.helius-rpc.com
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          OBSERVATION_LIMIT: ${{ inputs.limit || '30' }}
+          OBSERVATION_LIMIT: ${{ inputs.limit || '15' }}
         run: python telegram_qualified.py

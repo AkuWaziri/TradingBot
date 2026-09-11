@@ -4,6 +4,7 @@ from dexscreener_market import DexScreenerPair
 from helius_onchain import SolanaTokenState, TokenAccountShare
 from live_market import LiveToken
 from qualification_engine import Qualifier
+from solana_intelligence import build_onchain_features
 
 
 NOW = datetime(2026, 9, 11, 10, 0, tzinfo=timezone.utc)
@@ -77,6 +78,7 @@ def make_state() -> SolanaTokenState:
                 raw_amount=50,
                 decimals=0,
                 ui_amount=50.0,
+                owner=f"Wallet{i}",
             )
             for i in range(5)
         ),
@@ -106,3 +108,54 @@ def test_normal_negative_5m_momentum_remains_score_based():
     assert result.qualified is True
     assert result.score == 87.5
     assert "negative_5m_momentum" in result.warnings
+
+
+def test_holder_concentration_aggregates_multiple_token_accounts_by_wallet():
+    state = make_state()
+    accounts = list(state.top_accounts)
+    accounts[0] = TokenAccountShare("Account0", 150, 0, 150.0, "Wallet0")
+    accounts[1] = TokenAccountShare("Account1", 100, 0, 100.0, "Wallet0")
+    state = SolanaTokenState(
+        mint=state.mint,
+        symbol=state.symbol,
+        name=state.name,
+        supply_raw=state.supply_raw,
+        decimals=state.decimals,
+        token_program=state.token_program,
+        mint_authority=state.mint_authority,
+        freeze_authority=state.freeze_authority,
+        price_usd=state.price_usd,
+        top_accounts=tuple(accounts),
+        indexed_slot=state.indexed_slot,
+    )
+
+    features = build_onchain_features(state)
+
+    assert features.top_account_share == 0.25
+    assert features.top_5_account_share == 0.45
+
+
+def test_holder_concentration_requires_owner_resolution():
+    state = make_state()
+    accounts = list(state.top_accounts)
+    accounts[0] = TokenAccountShare("Account0", 50, 0, 50.0)
+    state = SolanaTokenState(
+        mint=state.mint,
+        symbol=state.symbol,
+        name=state.name,
+        supply_raw=state.supply_raw,
+        decimals=state.decimals,
+        token_program=state.token_program,
+        mint_authority=state.mint_authority,
+        freeze_authority=state.freeze_authority,
+        price_usd=state.price_usd,
+        top_accounts=tuple(accounts),
+        indexed_slot=state.indexed_slot,
+    )
+
+    try:
+        build_onchain_features(state)
+    except ValueError as exc:
+        assert "owner resolution" in str(exc)
+    else:
+        raise AssertionError("owner resolution must be required")

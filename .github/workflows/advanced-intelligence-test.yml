@@ -35,11 +35,12 @@ jobs:
         env:
           HELIUS_API_KEY: ${{ secrets.HELIUS_API_KEY }}
           HELIUS_RPC_BASE_URL: https://mainnet.helius-rpc.com
+          TARGET_MINT: ${{ inputs.mint }}
+          SIGNATURE_LIMIT: ${{ inputs.signature_limit }}
         run: |
           python - <<'PY'
           import os
           from advanced_intelligence import inspect_advanced_intelligence
-          from early_buyer_report import format_report
 
           mint = os.environ["TARGET_MINT"]
           limit = int(os.environ["SIGNATURE_LIMIT"])
@@ -90,6 +91,3 @@ jobs:
           print("")
           print("IMPORTANT: possible related wallets and manipulation warnings are heuristic research signals, not proof of coordinated behavior.")
           PY
-        env:
-          TARGET_MINT: ${{ inputs.mint }}
-          SIGNATURE_LIMIT: ${{ inputs.signature_limit }}

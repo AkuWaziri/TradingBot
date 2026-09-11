@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from dexscreener_market import DexScreenerPair, DexScreenerProvider
+from discovery import discover_candidates
 from helius_onchain import HeliusProvider, HeliusOnchainError
 from live_market import LiveMarketError, LiveToken
 from qualification_engine import Qualification, Qualifier
@@ -68,15 +69,25 @@ def find_qualified_tokens(limit: int = 30) -> list[Qualification]:
     dex = DexScreenerProvider()
     helius = HeliusProvider()
     qualifier = Qualifier()
-    mints = dex.latest_solana_token_addresses(limit=limit)
+    candidates = discover_candidates(limit=limit)
+    mints = [item.mint for item in candidates]
     pairs = dex.pairs_by_tokens(mints)
     grouped: dict[str, list[DexScreenerPair]] = {}
     for pair in pairs:
         grouped.setdefault(pair.base_token_address, []).append(pair)
 
     qualified: list[Qualification] = []
-    for mint in mints:
+    for candidate in candidates:
+        mint = candidate.mint
         pair = select_best_pair(grouped.get(mint, []), mint)
+        if pair is None:
+            # A newly discovered Pump/STONK token may not have been included in
+            # DexScreener's bulk response yet. Ask DexScreener directly by mint
+            # before dropping the candidate.
+            try:
+                pair = select_best_pair(dex.pairs_by_token(mint), mint)
+            except (LiveMarketError, ValueError):
+                pair = None
         if pair is None:
             continue
         try:

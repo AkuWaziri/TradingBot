@@ -1,4 +1,4 @@
-"""Read-only Solana monitor that emits only mature-qualified tokens."""
+"""Read-only Solana monitor that exposes core and mature qualification results."""
 
 from __future__ import annotations
 
@@ -25,6 +25,12 @@ class Candidate:
 
 
 @dataclass(frozen=True)
+class CoreQualified:
+    qualification: Qualification
+    mature_status: str
+
+
+@dataclass(frozen=True)
 class ScanResult:
     """Observable result of one read-only qualification scan."""
 
@@ -37,6 +43,7 @@ class ScanResult:
     qualified: tuple[Qualification, ...]
     rejection_reasons: tuple[tuple[str, int], ...]
     advanced_reports: tuple[tuple[str, AdvancedIntelligence, AdvancedQualification], ...] = ()
+    core_qualified_tokens: tuple[CoreQualified, ...] = ()
 
 
 QUALIFICATION_CHECKS = (
@@ -50,8 +57,6 @@ QUALIFICATION_CHECKS = (
     "authority_safety_pass",
 )
 
-# These are telemetry classes, not qualification rules. They keep technical/data
-# failures separate from actual token-risk rejection during calibration.
 RISK_REJECTION_PREFIXES = (
     "mint_",
     "non_solana_market",
@@ -83,7 +88,6 @@ PROVIDER_FAILURE_REJECTIONS = {
 
 
 def classify_rejection(reason: str) -> str:
-    """Classify a rejection for telemetry/calibration without changing qualification."""
     if reason in PROVIDER_FAILURE_REJECTIONS:
         return "provider_failure"
     if reason in DATA_INSUFFICIENT_REJECTIONS:
@@ -95,10 +99,7 @@ def classify_rejection(reason: str) -> str:
     return "provider_failure"
 
 
-def summarize_rejections(
-    rejection_reasons: tuple[tuple[str, int], ...],
-) -> dict[str, tuple[tuple[str, int], ...]]:
-    """Group raw rejection reasons into stable telemetry buckets."""
+def summarize_rejections(rejection_reasons: tuple[tuple[str, int], ...]) -> dict[str, tuple[tuple[str, int], ...]]:
     grouped: dict[str, list[tuple[str, int]]] = {
         "risk_rejection": [],
         "data_insufficient": [],
@@ -151,7 +152,6 @@ def _error_reason(exc: Exception) -> str:
 
 
 def scan_tokens(limit: int = 30) -> ScanResult:
-    """Run one read-only scan through core gates and advanced risk gates."""
     if not 1 <= limit <= 30:
         raise ValueError("limit must be between 1 and 30")
 
@@ -166,6 +166,7 @@ def scan_tokens(limit: int = 30) -> ScanResult:
         grouped.setdefault(pair.base_token_address, []).append(pair)
 
     qualified: list[Qualification] = []
+    core_qualified_tokens: list[CoreQualified] = []
     advanced_reports: list[tuple[str, AdvancedIntelligence, AdvancedQualification]] = []
     rejection_reasons: Counter[str] = Counter()
     market_data_available = 0
@@ -180,10 +181,7 @@ def scan_tokens(limit: int = 30) -> ScanResult:
     if advanced_max_transactions < 10:
         raise ValueError("ADVANCED_QUALIFICATION_MAX_TRANSACTIONS must be >= 10")
 
-    advanced_provider = CachedHeliusProvider(
-        provider=helius,
-        signature_limit=advanced_signature_limit,
-    )
+    advanced_provider = CachedHeliusProvider(provider=helius, signature_limit=advanced_signature_limit)
 
     for candidate in candidates:
         mint = candidate.mint
@@ -216,9 +214,10 @@ def scan_tokens(limit: int = 30) -> ScanResult:
             continue
 
         core_qualified += 1
+        mature_status = "ADVANCED_PENDING"
+        core_qualified_tokens.append(CoreQualified(result, mature_status))
+        core_index = len(core_qualified_tokens) - 1
 
-        # Mature qualification is fail-closed: a core pass is not a final pass
-        # until bounded transaction evidence and advanced risk gates also pass.
         try:
             intelligence = inspect_advanced_intelligence(
                 mint,
@@ -230,14 +229,17 @@ def scan_tokens(limit: int = 30) -> ScanResult:
             advanced_evaluated += 1
         except (HeliusOnchainError, LiveMarketError, ValueError) as exc:
             rejection_reasons["advanced_intelligence_unavailable"] += 1
+            core_qualified_tokens[core_index] = CoreQualified(result, "ADVANCED_PROVIDER_FAILURE")
             print(f"Advanced qualification unavailable for {mint}: {type(exc).__name__}: {exc}")
             continue
 
         if not advanced.qualified:
             for reason in advanced.hard_flags:
                 rejection_reasons[reason] += 1
+            core_qualified_tokens[core_index] = CoreQualified(result, "ADVANCED_REJECTED")
             continue
 
+        core_qualified_tokens[core_index] = CoreQualified(result, "MATURE_QUALIFIED")
         qualified.append(result)
         advanced_reports.append((mint, intelligence, advanced))
 
@@ -251,11 +253,11 @@ def scan_tokens(limit: int = 30) -> ScanResult:
         qualified=tuple(qualified),
         rejection_reasons=tuple(rejection_reasons.most_common(12)),
         advanced_reports=tuple(advanced_reports),
+        core_qualified_tokens=tuple(core_qualified_tokens),
     )
 
 
 def find_qualified_tokens(limit: int = 30) -> list[Qualification]:
-    """Compatibility wrapper returning only mature-qualified tokens."""
     return list(scan_tokens(limit=limit).qualified)
 
 
@@ -267,48 +269,23 @@ def _money(value: float) -> str:
     return f"${value:.0f}"
 
 
-def format_telegram_alerts(qualified: list[Qualification]) -> str:
-    """Format qualified tokens as compact, sectioned Telegram alerts."""
+def format_telegram_alerts(qualified: list[Qualification], title: str = "🟢 SOLANA MATURE-QUALIFIED") -> str:
     if not qualified:
-        return (
-            "🔎 SOLANA QUALIFIED MONITOR\n"
-            "────────────────────\n"
-            "📭 No qualified tokens in this scan\n"
-            "🛡️ Read-only · Manual trading only"
-        )
+        return f"{title}\n────────────────────\n📭 None in this scan"
 
-    blocks = [
-        "🟢 SOLANA QUALIFIED TOKENS",
-        "────────────────────",
-        "🛡️ READ-ONLY · MANUAL TRADING ONLY",
-        f"🔎 {len(qualified)} token{'s' if len(qualified) != 1 else ''} qualified",
-    ]
-
+    blocks = [title, "────────────────────", f"🔎 {len(qualified)} token{'s' if len(qualified) != 1 else ''}"]
     for index, q in enumerate(sorted(qualified, key=lambda item: item.score, reverse=True), start=1):
         flow = "N/A" if q.buy_sell_ratio_5m is None else (
             "∞" if q.buy_sell_ratio_5m == float("inf") else f"{q.buy_sell_ratio_5m:.2f}"
         )
-        passed = set(q.positives)
-        failed = [check for check in QUALIFICATION_CHECKS if check not in passed]
         block = [
-            f"\n#{index}  🟢 {q.symbol}  ·  {q.score:.0f}/100",
-            "────────────────────",
+            f"\n#{index}  {q.symbol} · {q.score:.0f}/100",
             f"🧾 CA: {q.mint}",
-            f"🏦 Venue: {q.dex_id}  ·  Age: {q.age_minutes:.1f}m",
-            f"💰 Market: {_money(q.market_cap_usd)} MC  ·  {_money(q.liquidity_usd)} Liq",
-            f"📈 Momentum: {q.price_change_5m_pct:+.2f}% (5m)  ·  {q.price_change_1h_pct:+.2f}% (1h)",
-            f"⚡ Flow: {_money(q.volume_5m_usd)} 5m vol  ·  B/S {flow}",
-            "✅ Passed: " + ", ".join(q.positives),
+            f"🏦 {q.dex_id} · {q.age_minutes:.1f}m · MC {_money(q.market_cap_usd)} · Liq {_money(q.liquidity_usd)}",
+            f"📈 5m {q.price_change_5m_pct:+.2f}% · 1h {q.price_change_1h_pct:+.2f}% · Vol {_money(q.volume_5m_usd)} · B/S {flow}",
+            "✅ " + ", ".join(q.positives),
         ]
-        if failed:
-            block.append("⚠️ Failed: " + ", ".join(failed))
         if q.warnings:
-            block.append("🚩 Warnings: " + ", ".join(q.warnings))
+            block.append("⚠️ " + ", ".join(q.warnings))
         blocks.append("\n".join(block))
-
-    blocks.append("\n🔒 Execution: DISABLED")
     return "\n\n".join(blocks)
-
-
-if __name__ == "__main__":
-    print(format_telegram_alerts(find_qualified_tokens()))

@@ -10,10 +10,10 @@ from advanced_intelligence import AdvancedIntelligence, inspect_advanced_intelli
 from advanced_qualification import AdvancedQualification, evaluate_advanced
 from dexscreener_market import DexScreenerPair, DexScreenerProvider
 from discovery import discover_candidates
+from helius_cache import CachedHeliusProvider
 from helius_onchain import HeliusProvider, HeliusOnchainError
 from live_market import LiveMarketError, LiveToken
 from qualification_engine import Qualification, Qualifier
-from telegram_advanced import CachedHeliusProvider
 
 
 @dataclass(frozen=True)

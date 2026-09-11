@@ -36,4 +36,4 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           OBSERVATION_LIMIT: ${{ inputs.limit || '30' }}
-        run: python telegram_qualified.py
+        run: python telegram_scan.py

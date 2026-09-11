@@ -83,9 +83,9 @@ def format_scan_status(scan) -> str:
         "",
     ]
     grouped = summarize_rejections(scan.rejection_reasons)
-    _append_rejection_group(lines, "🔴 Risk rejected", grouped["risk_rejection"])
-    _append_rejection_group(lines, "⚫ Data insufficient", grouped["data_insufficient"])
-    _append_rejection_group(lines, "🟠 Provider / technical", grouped["provider_failure"])
+    _append_rejection_group(lines, "🔴 Risk rejected:", grouped["risk_rejection"])
+    _append_rejection_group(lines, "⚫ Data insufficient:", grouped["data_insufficient"])
+    _append_rejection_group(lines, "🟠 Provider / technical:", grouped["provider_failure"])
     lines.extend(["", "🛡️ READ-ONLY · MANUAL TRADING ONLY", "🔒 Execution: DISABLED"])
     return "\n".join(lines)
 

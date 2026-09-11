@@ -16,6 +16,7 @@ class CachedHeliusProvider:
         self._provider = provider or HeliusProvider()
         self._signature_limit = signature_limit
         self._signatures: dict[str, list[dict[str, Any]]] = {}
+        self._signature_fetch_limits: dict[str, int] = {}
         self._transactions: dict[str, dict[str, Any] | None] = {}
 
     @property
@@ -26,8 +27,10 @@ class CachedHeliusProvider:
         address = str(address).strip()
         bounded = min(limit, self._signature_limit)
         cached = self._signatures.get(address)
-        if cached is None or len(cached) < bounded:
+        fetched_limit = self._signature_fetch_limits.get(address, 0)
+        if cached is None or fetched_limit < bounded:
             self._signatures[address] = self._provider.get_recent_signatures(address, limit=bounded)
+            self._signature_fetch_limits[address] = bounded
             cached = self._signatures[address]
         return cached[:bounded]
 

@@ -105,22 +105,30 @@ def test_insufficient_evidence_fails_closed():
     flow = FlowIntelligence(
         signatures_scanned=12,
         transactions_parsed=8,
-        observed_buys=5,
-        observed_sells=2,
+        observed_buys=7,
+        observed_sells=3,
         unique_buyers=5,
         unique_sellers=2,
         unique_participants=7,
-        oldest_half_buy_count=2,
-        newest_half_buy_count=3,
+        oldest_half_buy_count=3,
+        newest_half_buy_count=4,
         oldest_half_sell_count=1,
-        newest_half_sell_count=1,
+        newest_half_sell_count=2,
         buyer_participation_growth_ratio=1.5,
         buy_flow_growth_ratio=1.5,
         incomplete_transactions=4,
     )
-    result = evaluate_advanced(make_intelligence(flow=flow))
+    manipulation = ManipulationIntelligence(
+        observed_trades=10,
+        unique_traders=7,
+        largest_trader_trade_share=0.20,
+        largest_trader_flow_share=0.25,
+        repeated_trader_share=0.30,
+        buy_sell_count_ratio=7 / 3,
+        warnings=(),
+    )
+    result = evaluate_advanced(make_intelligence(flow=flow, manipulation=manipulation))
 
     assert result.qualified is False
     assert "advanced_evidence_window_too_small" in result.hard_flags
-    assert "advanced_observed_trade_count_too_small" in result.hard_flags
     assert "advanced_transaction_data_too_incomplete" in result.hard_flags

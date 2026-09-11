@@ -1,0 +1,38 @@
+name: Solana Early Buyer Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      mint:
+        description: "Solana token mint / contract address"
+        required: true
+        type: string
+      signature_limit:
+        description: "Recent signatures to inspect"
+        required: false
+        default: "50"
+        type: string
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Inspect early buyers
+        env:
+          HELIUS_API_KEY: ${{ secrets.HELIUS_API_KEY }}
+          HELIUS_RPC_BASE_URL: https://mainnet.helius-rpc.com
+        run: python -c "from early_buyer_intelligence import inspect_early_buyers; from early_buyer_report import format_report; r=inspect_early_buyers('${{ inputs.mint }}', signature_limit=int('${{ inputs.signature_limit }}'), max_transactions=min(int('${{ inputs.signature_limit }}'), 30)); print(format_report(r))"

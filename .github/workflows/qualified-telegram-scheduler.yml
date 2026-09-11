@@ -2,8 +2,14 @@ name: Solana Qualified Telegram Monitor Scheduler
 
 on:
   schedule:
-    - cron: "7,22,37,52 * * * *"
+    # GitHub Actions uses UTC for scheduled workflows.
+    # Run every 15 minutes: :00, :15, :30, :45.
+    - cron: "0,15,30,45 * * * *"
   workflow_dispatch:
+
+concurrency:
+  group: solana-qualified-telegram-monitor
+  cancel-in-progress: false
 
 jobs:
   monitor:
@@ -30,4 +36,6 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           OBSERVATION_LIMIT: "30"
-        run: python telegram_scan.py
+        run: |
+          echo "Scheduled Solana monitor run: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          python telegram_scan.py

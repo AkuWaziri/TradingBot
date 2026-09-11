@@ -42,6 +42,9 @@ def send_telegram(text: str) -> None:
 def main() -> None:
     limit = int(os.getenv("OBSERVATION_LIMIT", "30"))
     qualified = find_qualified_tokens(limit=limit)
+    if not qualified:
+        print("No qualified tokens; Telegram message not sent; execution=disabled")
+        return
     message = format_telegram_alerts(qualified)
     send_telegram(message)
     print(f"Telegram qualified-token alert sent; qualified={len(qualified)}; execution=disabled")

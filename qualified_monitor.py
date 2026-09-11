@@ -18,6 +18,18 @@ class Candidate:
     error: str | None = None
 
 
+QUALIFICATION_CHECKS = (
+    "liquidity_pass",
+    "liquidity_ratio_pass",
+    "recent_volume_pass",
+    "buy_pressure_pass",
+    "5m_momentum_pass",
+    "1h_momentum_pass",
+    "age_confirmation_pass",
+    "authority_safety_pass",
+)
+
+
 def _pair_rank(pair: DexScreenerPair) -> tuple[float, float, float, int]:
     return (
         pair.liquidity_usd or 0.0,
@@ -93,17 +105,22 @@ def format_telegram_alerts(qualified: list[Qualification]) -> str:
     blocks = ["SOLANA QUALIFIED TOKENS", "manual trading only — no automated execution"]
     for q in sorted(qualified, key=lambda item: item.score, reverse=True):
         flow = "N/A" if q.buy_sell_ratio_5m is None else ("∞" if q.buy_sell_ratio_5m == float("inf") else f"{q.buy_sell_ratio_5m:.2f}")
-        blocks.append(
-            "\n".join([
-                f"🟢 {q.symbol} — {q.score:.0f}/100",
-                f"CA: {q.mint}",
-                f"DEX: {q.dex_id} | Age: {q.age_minutes:.1f}m",
-                f"MC: {_money(q.market_cap_usd)} | Liq: {_money(q.liquidity_usd)}",
-                f"5m Vol: {_money(q.volume_5m_usd)} | Buy/Sell: {flow}",
-                f"5m: {q.price_change_5m_pct:+.2f}% | 1h: {q.price_change_1h_pct:+.2f}%",
-                "Passed: " + ", ".join(q.positives[:5]),
-            ])
-        )
+        passed = set(q.positives)
+        failed = [check for check in QUALIFICATION_CHECKS if check not in passed]
+        lines = [
+            f"🟢 {q.symbol} — {q.score:.0f}/100",
+            f"CA: {q.mint}",
+            f"DEX: {q.dex_id} | Age: {q.age_minutes:.1f}m",
+            f"MC: {_money(q.market_cap_usd)} | Liq: {_money(q.liquidity_usd)}",
+            f"5m Vol: {_money(q.volume_5m_usd)} | Buy/Sell: {flow}",
+            f"5m: {q.price_change_5m_pct:+.2f}% | 1h: {q.price_change_1h_pct:+.2f}%",
+            "Passed: " + ", ".join(q.positives),
+        ]
+        if failed:
+            lines.append("Failed: " + ", ".join(failed))
+        if q.warnings:
+            lines.append("Warnings: " + ", ".join(q.warnings))
+        blocks.append("\n".join(lines))
     return "\n\n".join(blocks)
 
 

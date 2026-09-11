@@ -35,4 +35,7 @@ jobs:
         env:
           HELIUS_API_KEY: ${{ secrets.HELIUS_API_KEY }}
           HELIUS_RPC_BASE_URL: https://mainnet.helius-rpc.com
-        run: python -c "from early_buyer_intelligence import inspect_early_buyers; from early_buyer_report import format_report; r=inspect_early_buyers('${{ inputs.mint }}', signature_limit=int('${{ inputs.signature_limit }}'), max_transactions=min(int('${{ inputs.signature_limit }}'), 30)); print(format_report(r))"
+          TOKEN_MINT: ${{ inputs.mint }}
+          SIGNATURE_LIMIT: ${{ inputs.signature_limit }}
+        run: |
+          python -c "import os; from early_buyer_intelligence import inspect_early_buyers; from early_buyer_report import format_report; limit=int(os.environ['SIGNATURE_LIMIT']); r=inspect_early_buyers(os.environ['TOKEN_MINT'], signature_limit=limit, max_transactions=min(limit, 30)); print(format_report(r))"

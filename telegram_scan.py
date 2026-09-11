@@ -62,7 +62,6 @@ def _telegram_chunks(text: str, limit: int = TELEGRAM_SAFE_TEXT) -> list[str]:
         if len(section) <= limit:
             current = section
             continue
-        # Defensive fallback for an unexpectedly large single section.
         for start in range(0, len(section), limit):
             chunks.append(section[start:start + limit])
         current = ""
@@ -87,8 +86,10 @@ def format_scan_status(scan) -> str:
         "🧠 Mature qualification: core gates + advanced risk gates",
         f"🎯 Candidates discovered: {scan.discovered}/{scan.requested}",
         f"📊 Market data available: {scan.market_data_available}",
-        f"⛓️ Fully evaluated: {scan.evaluated}",
-        f"🟢 Qualified: {len(scan.qualified)}",
+        f"⛓️ Core evaluated: {scan.evaluated}",
+        f"🧪 Core-qualified: {scan.core_qualified}",
+        f"🔬 Advanced evaluated: {scan.advanced_evaluated}",
+        f"🟢 Mature qualified: {len(scan.qualified)}",
         "",
     ]
     if scan.rejection_reasons:
@@ -143,7 +144,9 @@ def main() -> None:
     print(
         "Telegram scan report sent; "
         f"discovered={scan.discovered}; "
-        f"evaluated={scan.evaluated}; "
+        f"core_evaluated={scan.evaluated}; "
+        f"core_qualified={scan.core_qualified}; "
+        f"advanced_evaluated={scan.advanced_evaluated}; "
         f"qualified={len(scan.qualified)}; "
         f"advanced_reports={len(scan.advanced_reports)}; "
         "execution=disabled"

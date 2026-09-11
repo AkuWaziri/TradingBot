@@ -14,17 +14,21 @@ from helius_onchain import HeliusProvider
 
 
 class CachedHeliusProvider:
-    """Small per-scan cache to avoid repeating identical Helius RPC calls."""
+    """Per-scan cache with a bounded signature window for Telegram."""
 
-    def __init__(self, provider: HeliusProvider | None = None) -> None:
+    def __init__(self, provider: HeliusProvider | None = None, signature_limit: int = 50) -> None:
+        if signature_limit < 1:
+            raise ValueError("signature_limit must be >= 1")
         self._provider = provider or HeliusProvider()
+        self._signature_limit = signature_limit
         self._signatures: dict[tuple[str, int], list[dict[str, Any]]] = {}
         self._transactions: dict[str, dict[str, Any] | None] = {}
 
     def get_recent_signatures(self, address: str, limit: int = 100) -> list[dict[str, Any]]:
-        key = (address, limit)
+        bounded = min(limit, self._signature_limit)
+        key = (address, bounded)
         if key not in self._signatures:
-            self._signatures[key] = self._provider.get_recent_signatures(address, limit=limit)
+            self._signatures[key] = self._provider.get_recent_signatures(address, limit=bounded)
         return self._signatures[key]
 
     def get_transaction(self, signature: str) -> dict[str, Any] | None:
@@ -54,7 +58,7 @@ def enrich_qualified(
     if signature_limit < 1 or max_transactions < 1:
         raise ValueError("signature_limit and max_transactions must be >= 1")
 
-    provider = CachedHeliusProvider()
+    provider = CachedHeliusProvider(signature_limit=signature_limit)
     reports: dict[str, TelegramAdvancedReport] = {}
     selected = sorted(qualified, key=lambda item: item.score, reverse=True)[:limit]
     for item in selected:

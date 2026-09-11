@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 
 from dexscreener_market import DexScreenerPair, DexScreenerProvider
@@ -17,6 +18,18 @@ class Candidate:
     pair: DexScreenerPair | None
     qualification: Qualification | None
     error: str | None = None
+
+
+@dataclass(frozen=True)
+class ScanResult:
+    """Observable result of one read-only qualification scan."""
+
+    requested: int
+    discovered: int
+    market_data_available: int
+    evaluated: int
+    qualified: tuple[Qualification, ...]
+    rejection_reasons: tuple[tuple[str, int], ...]
 
 
 QUALIFICATION_CHECKS = (
@@ -62,7 +75,8 @@ def token_from_pair(pair: DexScreenerPair) -> LiveToken:
     return token
 
 
-def find_qualified_tokens(limit: int = 30) -> list[Qualification]:
+def scan_tokens(limit: int = 30) -> ScanResult:
+    """Run one read-only scan and expose stage/rejection statistics."""
     if not 1 <= limit <= 30:
         raise ValueError("limit must be between 1 and 30")
 
@@ -77,6 +91,10 @@ def find_qualified_tokens(limit: int = 30) -> list[Qualification]:
         grouped.setdefault(pair.base_token_address, []).append(pair)
 
     qualified: list[Qualification] = []
+    rejection_reasons: Counter[str] = Counter()
+    market_data_available = 0
+    evaluated = 0
+
     for candidate in candidates:
         mint = candidate.mint
         pair = select_best_pair(grouped.get(mint, []), mint)
@@ -86,16 +104,42 @@ def find_qualified_tokens(limit: int = 30) -> list[Qualification]:
             except (LiveMarketError, ValueError):
                 pair = None
         if pair is None:
+            rejection_reasons["market_data_unavailable"] += 1
             continue
+
+        market_data_available += 1
         try:
             token = token_from_pair(pair)
             state = helius.inspect_token(mint)
             result = qualifier.evaluate(token, pair, state)
-        except (HeliusOnchainError, LiveMarketError, ValueError):
+        except (HeliusOnchainError, LiveMarketError, ValueError) as exc:
+            rejection_reasons[type(exc).__name__.lower()] += 1
             continue
+
+        evaluated += 1
         if result.qualified:
             qualified.append(result)
-    return qualified
+            continue
+
+        if result.hard_flags:
+            for reason in result.hard_flags:
+                rejection_reasons[reason] += 1
+        else:
+            rejection_reasons[f"score_below_{qualifier.minimum_score:.0f}"] += 1
+
+    return ScanResult(
+        requested=limit,
+        discovered=len(candidates),
+        market_data_available=market_data_available,
+        evaluated=evaluated,
+        qualified=tuple(qualified),
+        rejection_reasons=tuple(rejection_reasons.most_common(8)),
+    )
+
+
+def find_qualified_tokens(limit: int = 30) -> list[Qualification]:
+    """Compatibility wrapper returning only qualified tokens."""
+    return list(scan_tokens(limit=limit).qualified)
 
 
 def _money(value: float) -> str:

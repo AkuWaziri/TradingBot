@@ -32,6 +32,8 @@ class ScanResult:
     discovered: int
     market_data_available: int
     evaluated: int
+    core_qualified: int
+    advanced_evaluated: int
     qualified: tuple[Qualification, ...]
     rejection_reasons: tuple[tuple[str, int], ...]
     advanced_reports: tuple[tuple[str, AdvancedIntelligence, AdvancedQualification], ...] = ()
@@ -80,6 +82,16 @@ def token_from_pair(pair: DexScreenerPair) -> LiveToken:
     return token
 
 
+def _error_reason(exc: Exception) -> str:
+    if isinstance(exc, HeliusOnchainError):
+        return "helius_error"
+    if isinstance(exc, LiveMarketError):
+        return "market_data_error"
+    if isinstance(exc, ValueError):
+        return "data_validation_error"
+    return type(exc).__name__.lower()
+
+
 def scan_tokens(limit: int = 30) -> ScanResult:
     """Run one read-only scan through core gates and advanced risk gates."""
     if not 1 <= limit <= 30:
@@ -100,12 +112,20 @@ def scan_tokens(limit: int = 30) -> ScanResult:
     rejection_reasons: Counter[str] = Counter()
     market_data_available = 0
     evaluated = 0
+    core_qualified = 0
+    advanced_evaluated = 0
+
+    advanced_signature_limit = int(os.getenv("ADVANCED_QUALIFICATION_SIGNATURE_LIMIT", "40"))
+    advanced_max_transactions = int(os.getenv("ADVANCED_QUALIFICATION_MAX_TRANSACTIONS", "30"))
+    if advanced_signature_limit < 20:
+        raise ValueError("ADVANCED_QUALIFICATION_SIGNATURE_LIMIT must be >= 20")
+    if advanced_max_transactions < 10:
+        raise ValueError("ADVANCED_QUALIFICATION_MAX_TRANSACTIONS must be >= 10")
 
     advanced_provider = CachedHeliusProvider(
         provider=helius,
-        signature_limit=int(os.getenv("ADVANCED_QUALIFICATION_SIGNATURE_LIMIT", "40")),
+        signature_limit=advanced_signature_limit,
     )
-    advanced_max_transactions = int(os.getenv("ADVANCED_QUALIFICATION_MAX_TRANSACTIONS", "30"))
 
     for candidate in candidates:
         mint = candidate.mint
@@ -125,7 +145,7 @@ def scan_tokens(limit: int = 30) -> ScanResult:
             state = helius.inspect_token(mint)
             result = qualifier.evaluate(token, pair, state)
         except (HeliusOnchainError, LiveMarketError, ValueError) as exc:
-            rejection_reasons[type(exc).__name__.lower()] += 1
+            rejection_reasons[_error_reason(exc)] += 1
             continue
 
         evaluated += 1
@@ -137,17 +157,19 @@ def scan_tokens(limit: int = 30) -> ScanResult:
                 rejection_reasons[f"score_below_{qualifier.minimum_score:.0f}"] += 1
             continue
 
+        core_qualified += 1
+
         # Mature qualification is fail-closed: a core pass is not a final pass
         # until bounded transaction evidence and advanced risk gates also pass.
         try:
-            signature_limit = advanced_provider._signature_limit
             intelligence = inspect_advanced_intelligence(
                 mint,
                 provider=advanced_provider,
-                signature_limit=signature_limit,
-                max_transactions=min(advanced_max_transactions, signature_limit),
+                signature_limit=advanced_signature_limit,
+                max_transactions=min(advanced_max_transactions, advanced_signature_limit),
             )
             advanced = evaluate_advanced(intelligence)
+            advanced_evaluated += 1
         except (HeliusOnchainError, LiveMarketError, ValueError) as exc:
             rejection_reasons["advanced_intelligence_unavailable"] += 1
             print(f"Advanced qualification unavailable for {mint}: {type(exc).__name__}: {exc}")
@@ -166,6 +188,8 @@ def scan_tokens(limit: int = 30) -> ScanResult:
         discovered=len(candidates),
         market_data_available=market_data_available,
         evaluated=evaluated,
+        core_qualified=core_qualified,
+        advanced_evaluated=advanced_evaluated,
         qualified=tuple(qualified),
         rejection_reasons=tuple(rejection_reasons.most_common(12)),
         advanced_reports=tuple(advanced_reports),

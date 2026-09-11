@@ -25,6 +25,7 @@ class TokenAccountShare:
     raw_amount: int
     decimals: int
     ui_amount: float | None
+    owner: str | None = None
 
     @property
     def fraction_of_supply(self) -> float | None:
@@ -60,6 +61,8 @@ class SolanaTokenState:
         for account in self.top_accounts:
             if not account.address or account.raw_amount < 0:
                 raise ValueError("invalid token account")
+            if account.owner is not None and not account.owner.strip():
+                raise ValueError("invalid token account owner")
             if account.ui_amount is not None and (not isfinite(account.ui_amount) or account.ui_amount < 0):
                 raise ValueError("invalid token account UI amount")
 
@@ -138,9 +141,6 @@ class HeliusProvider:
         mint = mint.strip()
         if not mint:
             raise ValueError("mint is required")
-        # Helius DAS getAsset uses an object for params. displayOptions.showFungible
-        # must be nested under displayOptions; passing [mint, {...}] invokes the
-        # legacy positional shape and is rejected by the current RPC endpoint.
         result = self._rpc(
             "getAsset",
             {
@@ -180,6 +180,52 @@ class HeliusProvider:
                 )
             )
         return accounts
+
+    def get_token_account_owners(self, accounts: list[TokenAccountShare], mint: str) -> list[TokenAccountShare]:
+        """Resolve token-account owners so concentration is measured by wallet, not token account."""
+        if not accounts:
+            return []
+        mint = mint.strip()
+        if not mint:
+            raise ValueError("mint is required")
+
+        addresses = [account.address for account in accounts]
+        if len(addresses) > 100:
+            raise HeliusOnchainError("too many token accounts for one owner-resolution request")
+
+        result = self._rpc(
+            "getMultipleAccounts",
+            [addresses, {"encoding": "jsonParsed", "commitment": "finalized"}],
+        )
+        if not isinstance(result, dict) or not isinstance(result.get("value"), list):
+            raise HeliusOnchainError("invalid getMultipleAccounts result")
+        values = result["value"]
+        if len(values) != len(accounts):
+            raise HeliusOnchainError("owner-resolution result length mismatch")
+
+        resolved: list[TokenAccountShare] = []
+        for account, item in zip(accounts, values):
+            if not isinstance(item, dict):
+                raise HeliusOnchainError(f"token account not found: {account.address}")
+            data = item.get("data")
+            parsed = data.get("parsed") if isinstance(data, dict) else None
+            info = parsed.get("info") if isinstance(parsed, dict) else None
+            owner = str(info.get("owner") or "").strip() if isinstance(info, dict) else ""
+            account_mint = str(info.get("mint") or "").strip() if isinstance(info, dict) else ""
+            if not owner:
+                raise HeliusOnchainError(f"owner unavailable for token account: {account.address}")
+            if account_mint and account_mint != mint:
+                raise HeliusOnchainError(f"token account mint mismatch: {account.address}")
+            resolved.append(
+                TokenAccountShare(
+                    address=account.address,
+                    raw_amount=account.raw_amount,
+                    decimals=account.decimals,
+                    ui_amount=account.ui_amount,
+                    owner=owner,
+                )
+            )
+        return resolved
 
     def get_supply(self, mint: str) -> tuple[int, int]:
         mint = mint.strip()
@@ -223,7 +269,8 @@ class HeliusProvider:
         symbol = str(metadata.get("symbol") or "").strip() or None
         name = str(metadata.get("name") or "").strip() or None
         indexed_slot = self._int(asset.get("last_indexed_slot"), "last indexed slot")
-        top_accounts = tuple(self.get_largest_accounts(mint))
+        top_accounts = self.get_largest_accounts(mint)
+        top_accounts = self.get_token_account_owners(top_accounts, mint)
 
         state = SolanaTokenState(
             mint=mint,
@@ -235,7 +282,7 @@ class HeliusProvider:
             mint_authority=mint_authority,
             freeze_authority=freeze_authority,
             price_usd=price_usd,
-            top_accounts=top_accounts,
+            top_accounts=tuple(top_accounts),
             indexed_slot=indexed_slot,
         )
         state.validate()

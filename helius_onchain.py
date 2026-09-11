@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from dataclasses import dataclass
 from math import isfinite
 from typing import Any
@@ -74,6 +75,7 @@ class HeliusProvider:
         self.api_key = api_key if api_key is not None else os.getenv("HELIUS_API_KEY")
         self.base_url = (base_url or os.getenv("HELIUS_RPC_BASE_URL", "https://mainnet.helius-rpc.com")).rstrip("/")
         self.timeout = timeout
+        self.max_retries = 3
 
     def _rpc(self, method: str, params: Any) -> Any:
         if not self.api_key:
@@ -88,20 +90,32 @@ class HeliusProvider:
             method="POST",
             headers={"Accept": "application/json", "Content-Type": "application/json"},
         )
-        try:
-            with urlopen(request, timeout=self.timeout) as response:
-                payload = json.loads(response.read().decode("utf-8"))
-        except HTTPError as exc:
+        for attempt in range(self.max_retries + 1):
             try:
-                response_body = exc.read().decode("utf-8", errors="replace").strip()
-            except OSError:
-                response_body = ""
-            if self.api_key:
-                response_body = response_body.replace(self.api_key, "<redacted>")
-            detail = response_body[:500] if response_body else exc.reason
-            raise HeliusOnchainError(f"Helius HTTP {exc.code}: {detail}") from exc
-        except (URLError, TimeoutError, OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise HeliusOnchainError(f"Helius request failed: {exc}") from exc
+                with urlopen(request, timeout=self.timeout) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+                break
+            except HTTPError as exc:
+                if exc.code == 429 and attempt < self.max_retries:
+                    retry_after = exc.headers.get("Retry-After") if exc.headers else None
+                    try:
+                        delay = max(1.0, min(float(retry_after), 30.0)) if retry_after else 2.0 ** attempt
+                    except (TypeError, ValueError):
+                        delay = 2.0 ** attempt
+                    time.sleep(delay)
+                    continue
+                try:
+                    response_body = exc.read().decode("utf-8", errors="replace").strip()
+                except OSError:
+                    response_body = ""
+                if self.api_key:
+                    response_body = response_body.replace(self.api_key, "<redacted>")
+                detail = response_body[:500] if response_body else exc.reason
+                raise HeliusOnchainError(f"Helius HTTP {exc.code}: {detail}") from exc
+            except (URLError, TimeoutError, OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise HeliusOnchainError(f"Helius request failed: {exc}") from exc
+        else:
+            raise HeliusOnchainError("Helius request exhausted retries")
 
         if not isinstance(payload, dict):
             raise HeliusOnchainError("Helius response is not an object")
@@ -145,7 +159,7 @@ class HeliusProvider:
             "getAsset",
             {
                 "id": mint,
-                "displayOptions": {"showFungible": True},
+                "options": {"showFungible": True},
             },
         )
         if not isinstance(result, dict):

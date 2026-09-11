@@ -4,6 +4,7 @@ from advanced_intelligence import (
     CreatorIntelligence,
     FlowIntelligence,
     ManipulationIntelligence,
+    RelatedWalletGroup,
 )
 from advanced_qualification import evaluate_advanced
 
@@ -88,7 +89,7 @@ def test_extreme_flow_concentration_is_hard_reject():
 def test_possible_related_wallets_are_warning_below_hard_threshold():
     bundle = BundleIntelligence(
         wallets_scanned=20,
-        possible_related_groups=(),
+        possible_related_groups=(RelatedWalletGroup("FUNDER", ("A", "B"), "possible"),),
         wallets_in_related_groups=2,
         largest_group_share=0.10,
     )
@@ -96,7 +97,8 @@ def test_possible_related_wallets_are_warning_below_hard_threshold():
 
     assert result.qualified is True
     assert result.risk_level == "MEDIUM"
-    assert "advanced_possible_related_wallet_cluster" not in result.hard_flags
+    assert "advanced_possible_related_wallet_cluster" in result.warnings
+    assert "advanced_possible_related_wallet_cluster_too_large" not in result.hard_flags
 
 
 def test_insufficient_evidence_fails_closed():

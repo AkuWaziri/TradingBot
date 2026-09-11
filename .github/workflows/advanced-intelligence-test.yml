@@ -41,10 +41,59 @@ jobs:
           python - <<'PY'
           import os
           from advanced_intelligence import inspect_advanced_intelligence
+          from helius_onchain import HeliusProvider
 
-          mint = os.environ["TARGET_MINT"]
+          class CachedHeliusProvider:
+              """Read-only request cache for one intelligence inspection.
+
+              The advanced layers intentionally remain unchanged. This adapter
+              prevents repeated signature/transaction RPC calls for the same
+              token from consuming the Helius quota multiple times.
+              """
+
+              def __init__(self, inner, primary_mint, signature_limit):
+                  self.inner = inner
+                  self.primary_mint = primary_mint
+                  self.signature_limit = signature_limit
+                  self._signatures = {}
+                  self._transactions = {}
+
+              def get_recent_signatures(self, address, limit=100):
+                  address = str(address).strip()
+                  requested = max(1, int(limit))
+                  cached = self._signatures.get(address)
+                  if cached is not None:
+                      return cached[:requested]
+
+                  # The creator layer asks for up to 1000 signatures, but the
+                  # inspection run has an explicit bounded signature budget.
+                  # Reuse the same bounded mint window rather than silently
+                  # launching another large RPC scan.
+                  fetch_limit = self.signature_limit if address == self.primary_mint else min(requested, 20)
+                  result = self.inner.get_recent_signatures(address, limit=fetch_limit)
+                  self._signatures[address] = list(result)
+                  return self._signatures[address][:requested]
+
+              def get_transaction(self, signature):
+                  signature = str(signature).strip()
+                  if signature in self._transactions:
+                      return self._transactions[signature]
+                  result = self.inner.get_transaction(signature)
+                  self._transactions[signature] = result
+                  return result
+
+          mint = os.environ["TARGET_MINT"].strip()
           limit = int(os.environ["SIGNATURE_LIMIT"])
-          result = inspect_advanced_intelligence(mint, signature_limit=limit, max_transactions=min(limit, 50))
+          if not 1 <= limit <= 100:
+              raise ValueError("SIGNATURE_LIMIT must be between 1 and 100")
+
+          provider = CachedHeliusProvider(HeliusProvider(), mint, limit)
+          result = inspect_advanced_intelligence(
+              mint,
+              provider=provider,
+              signature_limit=limit,
+              max_transactions=min(limit, 50),
+          )
 
           print("SOLANA ADVANCED INTELLIGENCE")
           print("mode=read-only; execution=disabled")

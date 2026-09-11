@@ -9,7 +9,7 @@ ASSET = {
     "token_info": {
         "supply": 1_000_000_000,
         "decimals": 6,
-        "token_program": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "token_program": "TokenkegQfeZyiNwAJYbNbGKPFXCWuBvf9Ss623VQ5DA",
         "mint_authority": None,
         "freeze_authority": None,
         "price_info": {"price_per_token": 0.0012, "currency": "USD"},
@@ -23,6 +23,25 @@ LARGEST = {
     ]
 }
 
+OWNERS = {
+    "value": [
+        {
+            "data": {
+                "parsed": {
+                    "info": {"mint": "MINT1", "owner": "WALLET1"}
+                }
+            }
+        },
+        {
+            "data": {
+                "parsed": {
+                    "info": {"mint": "MINT1", "owner": "WALLET2"}
+                }
+            }
+        },
+    ]
+}
+
 
 def test_inspect_token_normalizes_onchain_state(monkeypatch):
     provider = HeliusProvider(api_key="test")
@@ -32,6 +51,8 @@ def test_inspect_token_normalizes_onchain_state(monkeypatch):
             return ASSET
         if method == "getTokenLargestAccounts":
             return LARGEST
+        if method == "getMultipleAccounts":
+            return OWNERS
         raise AssertionError(method)
 
     monkeypatch.setattr(provider, "_rpc", fake_rpc)
@@ -43,6 +64,8 @@ def test_inspect_token_normalizes_onchain_state(monkeypatch):
     assert state.freeze_authority is None
     assert len(state.top_accounts) == 2
     assert state.top_accounts[0].raw_amount == 500_000_000
+    assert state.top_accounts[0].owner == "WALLET1"
+    assert state.top_accounts[1].owner == "WALLET2"
 
 
 def test_get_asset_requires_mint():

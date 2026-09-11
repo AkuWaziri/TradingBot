@@ -10,7 +10,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from qualified_monitor import format_telegram_alerts, scan_tokens
+from qualified_monitor import format_telegram_alerts, scan_tokens, summarize_rejections
 from telegram_advanced import TelegramAdvancedReport, format_advanced_section
 
 
@@ -78,6 +78,14 @@ def send_telegram(text: str) -> None:
         _send_one_telegram(chunk)
 
 
+def _append_rejection_group(lines: list[str], title: str, entries: tuple[tuple[str, int], ...]) -> None:
+    if not entries:
+        return
+    lines.append(title)
+    for reason, count in entries:
+        lines.append(f"• {reason}: {count}")
+
+
 def format_scan_status(scan) -> str:
     lines = [
         "🔎 SOLANA MONITOR",
@@ -92,12 +100,14 @@ def format_scan_status(scan) -> str:
         f"🟢 Mature qualified: {len(scan.qualified)}",
         "",
     ]
-    if scan.rejection_reasons:
-        lines.append("🔴 Main rejection reasons:")
-        for reason, count in scan.rejection_reasons:
-            lines.append(f"• {reason}: {count}")
-    else:
+
+    grouped = summarize_rejections(scan.rejection_reasons)
+    _append_rejection_group(lines, "🔴 Risk rejected:", grouped["risk_rejection"])
+    _append_rejection_group(lines, "⚫ Data insufficient:", grouped["data_insufficient"])
+    _append_rejection_group(lines, "🟠 Provider / technical failure:", grouped["provider_failure"])
+    if not any(grouped.values()):
         lines.append("📭 No rejection data recorded")
+
     lines.extend([
         "",
         "🛡️ READ-ONLY · MANUAL TRADING ONLY",
@@ -122,7 +132,7 @@ def build_message(scan) -> str:
         report = TelegramAdvancedReport(intelligence)
         advanced_lines = [
             f"🧠 Advanced risk: {advanced.risk_level}",
-            f"📚 Evidence coverage: {advanced.evidence_coverage:.0%}",
+            f"📚 Evidence window: {advanced.evidence_coverage:.0%}",
         ]
         if advanced.warnings:
             advanced_lines.append("⚠️ Advanced warnings: " + ", ".join(advanced.warnings))

@@ -38,6 +38,11 @@ class IntelligenceConfig:
     max_top_5_account_share: float = 0.45
     min_momentum_5m_pct: float = 0.0
     min_momentum_1h_pct: float = 0.0
+    # A severe short-window drawdown is treated as a hard qualification failure.
+    # This prevents a token from qualifying on other metrics while it is already
+    # undergoing an abnormal rapid selloff. The broader momentum check remains
+    # score-based for ordinary negative movement.
+    max_extreme_negative_5m_pct: float = -15.0
     min_data_freshness_seconds: float = 180.0
 
 
@@ -244,6 +249,8 @@ def evaluate_token(
             warnings.append("negative_5m_momentum")
         if market.price_change_1h_pct < config.min_momentum_1h_pct:
             warnings.append("negative_1h_momentum")
+        if market.price_change_5m_pct <= config.max_extreme_negative_5m_pct:
+            hard.append("extreme_negative_5m_momentum")
 
     if hard:
         decision = "REJECT"

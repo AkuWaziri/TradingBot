@@ -101,6 +101,9 @@ class Qualifier:
             if onchain.top_5_account_share is not None and onchain.top_5_account_share > self.config.max_top_5_account_share:
                 hard.append("top_5_token_account_concentration_too_high")
 
+        if market is not None and market.price_change_5m_pct <= self.config.max_extreme_negative_5m_pct:
+            hard.append("extreme_negative_5m_momentum")
+
         score = 0.0
         if market is not None and onchain is not None and not hard:
             checks = (

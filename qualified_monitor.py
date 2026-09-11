@@ -81,9 +81,6 @@ def find_qualified_tokens(limit: int = 30) -> list[Qualification]:
         mint = candidate.mint
         pair = select_best_pair(grouped.get(mint, []), mint)
         if pair is None:
-            # A newly discovered Pump/STONK token may not have been included in
-            # DexScreener's bulk response yet. Ask DexScreener directly by mint
-            # before dropping the candidate.
             try:
                 pair = select_best_pair(dex.pairs_by_token(mint), mint)
             except (LiveMarketError, ValueError):
@@ -110,28 +107,45 @@ def _money(value: float) -> str:
 
 
 def format_telegram_alerts(qualified: list[Qualification]) -> str:
+    """Format qualified tokens as compact, sectioned Telegram alerts."""
     if not qualified:
-        return "SOLANA QUALIFIED MONITOR\nNo qualified tokens in this scan.\n\nMANUAL TRADING ONLY"
+        return (
+            "🔎 SOLANA QUALIFIED MONITOR\n"
+            "────────────────────\n"
+            "📭 No qualified tokens in this scan\n"
+            "🛡️ Read-only · Manual trading only"
+        )
 
-    blocks = ["SOLANA QUALIFIED TOKENS", "manual trading only — no automated execution"]
-    for q in sorted(qualified, key=lambda item: item.score, reverse=True):
-        flow = "N/A" if q.buy_sell_ratio_5m is None else ("∞" if q.buy_sell_ratio_5m == float("inf") else f"{q.buy_sell_ratio_5m:.2f}")
+    blocks = [
+        "🟢 SOLANA QUALIFIED TOKENS",
+        "────────────────────",
+        "🛡️ READ-ONLY · MANUAL TRADING ONLY",
+        f"🔎 {len(qualified)} token{'s' if len(qualified) != 1 else ''} qualified",
+    ]
+
+    for index, q in enumerate(sorted(qualified, key=lambda item: item.score, reverse=True), start=1):
+        flow = "N/A" if q.buy_sell_ratio_5m is None else (
+            "∞" if q.buy_sell_ratio_5m == float("inf") else f"{q.buy_sell_ratio_5m:.2f}"
+        )
         passed = set(q.positives)
         failed = [check for check in QUALIFICATION_CHECKS if check not in passed]
-        lines = [
-            f"🟢 {q.symbol} — {q.score:.0f}/100",
-            f"CA: {q.mint}",
-            f"DEX: {q.dex_id} | Age: {q.age_minutes:.1f}m",
-            f"MC: {_money(q.market_cap_usd)} | Liq: {_money(q.liquidity_usd)}",
-            f"5m Vol: {_money(q.volume_5m_usd)} | Buy/Sell: {flow}",
-            f"5m: {q.price_change_5m_pct:+.2f}% | 1h: {q.price_change_1h_pct:+.2f}%",
-            "Passed: " + ", ".join(q.positives),
+        block = [
+            f"\n#{index}  🟢 {q.symbol}  ·  {q.score:.0f}/100",
+            "────────────────────",
+            f"🧾 CA: {q.mint}",
+            f"🏦 Venue: {q.dex_id}  ·  Age: {q.age_minutes:.1f}m",
+            f"💰 Market: {_money(q.market_cap_usd)} MC  ·  {_money(q.liquidity_usd)} Liq",
+            f"📈 Momentum: {q.price_change_5m_pct:+.2f}% (5m)  ·  {q.price_change_1h_pct:+.2f}% (1h)",
+            f"⚡ Flow: {_money(q.volume_5m_usd)} 5m vol  ·  B/S {flow}",
+            "✅ Passed: " + ", ".join(q.positives),
         ]
         if failed:
-            lines.append("Failed: " + ", ".join(failed))
+            block.append("⚠️ Failed: " + ", ".join(failed))
         if q.warnings:
-            lines.append("Warnings: " + ", ".join(q.warnings))
-        blocks.append("\n".join(lines))
+            block.append("🚩 Warnings: " + ", ".join(q.warnings))
+        blocks.append("\n".join(block))
+
+    blocks.append("\n🔒 Execution: DISABLED")
     return "\n\n".join(blocks)
 
 

@@ -10,34 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from advanced_intelligence import AdvancedIntelligence, inspect_advanced_intelligence
-from helius_onchain import HeliusProvider
-
-
-class CachedHeliusProvider:
-    """Per-scan cache with a bounded signature window for Telegram."""
-
-    def __init__(self, provider: HeliusProvider | None = None, signature_limit: int = 50) -> None:
-        if signature_limit < 1:
-            raise ValueError("signature_limit must be >= 1")
-        self._provider = provider or HeliusProvider()
-        self._signature_limit = signature_limit
-        self._signatures: dict[tuple[str, int], list[dict[str, Any]]] = {}
-        self._transactions: dict[str, dict[str, Any] | None] = {}
-
-    def get_recent_signatures(self, address: str, limit: int = 100) -> list[dict[str, Any]]:
-        bounded = min(limit, self._signature_limit)
-        key = (address, bounded)
-        if key not in self._signatures:
-            self._signatures[key] = self._provider.get_recent_signatures(address, limit=bounded)
-        return self._signatures[key]
-
-    def get_transaction(self, signature: str) -> dict[str, Any] | None:
-        if signature not in self._transactions:
-            self._transactions[signature] = self._provider.get_transaction(signature)
-        return self._transactions[signature]
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._provider, name)
+from helius_cache import CachedHeliusProvider
 
 
 @dataclass(frozen=True)

@@ -20,11 +20,7 @@ def _send_one_telegram(text: str) -> None:
     if not token or not chat_id:
         raise RuntimeError("TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are required")
     url = f"https://api.telegram.org/bot{token}/sendMessage"
-    payload = urllib.parse.urlencode({
-        "chat_id": chat_id,
-        "text": text,
-        "disable_web_page_preview": "true",
-    }).encode("utf-8")
+    payload = urllib.parse.urlencode({"chat_id": chat_id, "text": text, "disable_web_page_preview": "true"}).encode("utf-8")
     request = urllib.request.Request(url, data=payload, method="POST", headers={"Content-Type": "application/x-www-form-urlencoded"})
     try:
         with urllib.request.urlopen(request, timeout=15) as response:
@@ -78,9 +74,12 @@ def format_scan_status(scan) -> str:
         "🔎 SOLANA MONITOR",
         "────────────────────",
         "🧠 Mature qualification: core gates + advanced risk gates",
-        f"📡 {scan.discovered}/{scan.requested} candidates discovered",
-        f"⛓️ {scan.evaluated} core evaluated · {scan.core_qualified} core-qualified",
-        f"🔬 {scan.advanced_evaluated} advanced evaluated · {len(scan.qualified)} mature-qualified",
+        f"🎯 Candidates discovered: {scan.discovered}/{scan.requested}",
+        f"📊 Market data available: {scan.market_data_available}",
+        f"⛓️ Core evaluated: {scan.evaluated}",
+        f"🧪 Core-qualified: {scan.core_qualified}",
+        f"🔬 Advanced evaluated: {scan.advanced_evaluated}",
+        f"🟢 Mature qualified: {len(scan.qualified)}",
         "",
     ]
     grouped = summarize_rejections(scan.rejection_reasons)
@@ -89,6 +88,14 @@ def format_scan_status(scan) -> str:
     _append_rejection_group(lines, "🟠 Provider / technical", grouped["provider_failure"])
     lines.extend(["", "🛡️ READ-ONLY · MANUAL TRADING ONLY", "🔒 Execution: DISABLED"])
     return "\n".join(lines)
+
+
+def _money(value: float) -> str:
+    if value >= 1_000_000:
+        return f"${value / 1_000_000:.2f}M"
+    if value >= 1_000:
+        return f"${value / 1_000:.1f}K"
+    return f"${value:.0f}"
 
 
 def _core_section(scan) -> str:
@@ -116,14 +123,6 @@ def _core_section(scan) -> str:
     return "\n\n".join(blocks)
 
 
-def _money(value: float) -> str:
-    if value >= 1_000_000:
-        return f"${value / 1_000_000:.2f}M"
-    if value >= 1_000:
-        return f"${value / 1_000:.1f}K"
-    return f"${value:.0f}"
-
-
 def build_message(scan) -> str:
     sections = [format_scan_status(scan), _core_section(scan), format_telegram_alerts(list(scan.qualified))]
     reports_by_mint = {mint: (intelligence, advanced) for mint, intelligence, advanced in scan.advanced_reports}
@@ -133,10 +132,7 @@ def build_message(scan) -> str:
             continue
         intelligence, advanced = item
         report = TelegramAdvancedReport(intelligence)
-        advanced_lines = [
-            f"🧠 Advanced risk: {advanced.risk_level}",
-            f"📚 Evidence window: {advanced.evidence_coverage:.0%}",
-        ]
+        advanced_lines = [f"🧠 Advanced risk: {advanced.risk_level}", f"📚 Evidence window: {advanced.evidence_coverage:.0%}"]
         if advanced.warnings:
             advanced_lines.append("⚠️ Advanced warnings: " + ", ".join(advanced.warnings))
         sections.append(

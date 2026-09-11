@@ -50,6 +50,64 @@ QUALIFICATION_CHECKS = (
     "authority_safety_pass",
 )
 
+# These are telemetry classes, not qualification rules. They keep technical/data
+# failures separate from actual token-risk rejection during calibration.
+RISK_REJECTION_PREFIXES = (
+    "mint_",
+    "non_solana_market",
+    "invalid_",
+    "top_token_account_concentration_too_high",
+    "top_5_token_account_concentration_too_high",
+    "extreme_negative_5m_momentum",
+    "score_below_",
+    "advanced_single_wallet_",
+    "advanced_repeated_wallet_activity_too_high",
+    "advanced_low_unique_trader_diversity",
+    "advanced_one_sided_observed_flow",
+    "advanced_possible_related_wallet_cluster_too_large",
+)
+
+DATA_INSUFFICIENT_REJECTIONS = {
+    "market_data_unavailable",
+    "advanced_evidence_window_too_small",
+    "advanced_observed_trade_count_too_small",
+    "advanced_participant_count_too_small",
+    "advanced_transaction_data_too_incomplete",
+}
+
+PROVIDER_FAILURE_REJECTIONS = {
+    "helius_error",
+    "market_data_error",
+    "advanced_intelligence_unavailable",
+}
+
+
+def classify_rejection(reason: str) -> str:
+    """Classify a rejection for telemetry/calibration without changing qualification."""
+    if reason in PROVIDER_FAILURE_REJECTIONS:
+        return "provider_failure"
+    if reason in DATA_INSUFFICIENT_REJECTIONS:
+        return "data_insufficient"
+    if reason.startswith(RISK_REJECTION_PREFIXES):
+        return "risk_rejection"
+    if reason == "data_validation_error":
+        return "data_insufficient"
+    return "provider_failure"
+
+
+def summarize_rejections(
+    rejection_reasons: tuple[tuple[str, int], ...],
+) -> dict[str, tuple[tuple[str, int], ...]]:
+    """Group raw rejection reasons into stable telemetry buckets."""
+    grouped: dict[str, list[tuple[str, int]]] = {
+        "risk_rejection": [],
+        "data_insufficient": [],
+        "provider_failure": [],
+    }
+    for reason, count in rejection_reasons:
+        grouped[classify_rejection(reason)].append((reason, count))
+    return {key: tuple(value) for key, value in grouped.items()}
+
 
 def _pair_rank(pair: DexScreenerPair) -> tuple[float, float, float, int]:
     return (
